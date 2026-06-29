@@ -267,7 +267,7 @@
   <div class="viewtabs">
     <div class="viewtab active" data-view="matrix">Matrix</div>
     <div class="viewtab" data-view="timeline">Zeitstrahl</div>
-    <div class="viewtab" data-view="glossary">Mechanismus-Glossar</div>
+    <div class="viewtab" data-view="glossary">Glossar</div>
     <div class="viewtab" data-view="summary">Zusammenfassung</div>
   </div>
 
@@ -287,7 +287,15 @@
 
   <div id="view-glossary" style="display:none">
     <div class="row" style="margin-top:1.5rem; justify-content:space-between">
-      <span class="row-label">Geplante Mechanismen · Einsatzorte aus der Matrix automatisch verknüpft</span>
+      <span style="display:flex; gap:8px; align-items:center">
+        <span class="row-label" style="margin-right:0">Aggregation</span>
+        <select class="select" id="gloss-dim" style="font-size:12px">
+          <option value="mech">Mechanik</option>
+          <option value="action">Aktionen</option>
+          <option value="article">Artikel</option>
+        </select>
+        <span class="row-label" id="gloss-hint" style="margin-right:0; text-transform:none; letter-spacing:0"></span>
+      </span>
       <button class="btn btn-primary" id="btn-add-mech">+ Mechanismus</button>
     </div>
     <div class="gloss-grid" id="gloss-grid"></div>
@@ -303,7 +311,6 @@
         <span class="row-label" style="margin-right:0">Änderungen ab</span>
         <input type="date" class="select" id="sum-since" style="font-size:12px">
         <span class="chip" id="sum-since-clear" hidden>Zurücksetzen <span class="x">✕</span></span>
-        <button class="btn" id="btn-manage-aa">Aktionen &amp; Artikel verwalten</button>
         <button class="btn" id="btn-copy-summary">Als Text kopieren</button>
       </span>
     </div>
@@ -791,7 +798,6 @@ function readEditor(el) {
 
 /* ---------- glossary ---------- */
 let drawerMech = null; // null = closed | mechId | "new"
-let drawerManage = false; // Verwaltungs-Panel Aktionen/Artikel offen?
 function openMechDrawer(mechId) {
   drawerCell = null; drawerEditing = null;
   drawerMech = mechId;
@@ -833,23 +839,54 @@ function renderMechDrawer() {
   }
   $("#drawer-body").innerHTML = html;
 }
+// Einsatzorte-Liste (seg @ touchpoint · domain) mit Sprung in die Matrix-Zelle
+function usesList(uses) {
+  return uses.length ? uses.map(i => { const s = seg(i.segId);
+    return `<div class="use-item" data-jump="${i.domainId}::${i.tpId}::${i.segId}"><span class="use-seg" style="background:${s?.color || "var(--border)"}"></span>${esc(s?.name || "?")} <span style="color:var(--faint)">@</span> ${esc(tp(i.domainId, i.tpId)?.name || "?")} <span style="color:var(--faint)">· ${esc(domain(i.domainId)?.name || "?")}</span></div>`;
+  }).join("") : `<div class="empty" style="padding:.6rem 0;text-align:left">Noch nirgends eingeplant.</div>`;
+}
+function mechCard(m) {
+  const uses = cur().ideas.filter(i => i.mechs.includes(m.id)), cat = CATS[m.cat];
+  return `<div class="mcard">
+    <div class="mtop"><div class="mname"><span class="mdot" style="width:9px;height:9px;background:${cat.color}"></span>${esc(m.name)}</div>
+      <span class="catbadge" style="background:${cat.color}1a;color:${cat.color}">${cat.label}</span></div>
+    <div class="mdesc">${esc(m.desc) || "<span style='color:var(--faint)'>Noch keine Beschreibung.</span>"}</div>
+    <div class="uses"><div class="uses-h">Einsatzorte · ${uses.length}</div>${usesList(uses)}</div>
+    <div style="display:flex;gap:12px;margin-top:10px">
+      <span class="medit" data-medit="${m.id}">Bearbeiten</span>
+      <span class="medit" data-mdel-card="${m.id}" style="color:var(--red)">Löschen</span>
+    </div></div>`;
+}
+function valueCard(key, v, allVals) {
+  const uses = cur().ideas.filter(i => (i[key] || "").trim() === v);
+  const others = allVals.filter(o => o !== v);
+  return `<div class="mcard">
+    <div class="mtop"><div class="mname">${esc(v)}</div>
+      <span class="catbadge" style="background:var(--surface-alt);color:var(--muted)">${uses.length} Einsatzort${uses.length === 1 ? "" : "e"}</span></div>
+    <div class="uses"><div class="uses-h">Einsatzorte · ${uses.length}</div>${usesList(uses)}</div>
+    <div class="aa-item" style="margin-top:10px;border-top:0">
+      <input class="tf aa-name" data-aaedit="${key}" data-aaold="${esc(v)}" value="${esc(v)}">
+      <select class="select" data-aamerge="${key}" data-aafrom="${esc(v)}">
+        <option value="">zusammenführen …</option>
+        ${others.map(o => `<option value="${esc(o)}">→ ${esc(o)}</option>`).join("")}
+      </select>
+      <button class="link-del" data-aadel="${key}" data-aaval="${esc(v)}" title="von allen Karten entfernen">✕</button>
+    </div></div>`;
+}
 function renderGlossary() {
-  $("#gloss-grid").innerHTML = cur().mechanisms.map(m => {
-    const uses = cur().ideas.filter(i => i.mechs.includes(m.id)), cat = CATS[m.cat];
-    return `<div class="mcard">
-      <div class="mtop"><div class="mname"><span class="mdot" style="width:9px;height:9px;background:${cat.color}"></span>${esc(m.name)}</div>
-        <span class="catbadge" style="background:${cat.color}1a;color:${cat.color}">${cat.label}</span></div>
-      <div class="mdesc">${esc(m.desc) || "<span style='color:var(--faint)'>Noch keine Beschreibung.</span>"}</div>
-      <div class="uses"><div class="uses-h">Einsatzorte · ${uses.length}</div>
-        ${uses.length ? uses.map(i => { const s = seg(i.segId);
-          return `<div class="use-item" data-jump="${i.domainId}::${i.tpId}::${i.segId}"><span class="use-seg" style="background:${s.color}"></span>${esc(s.name)} <span style="color:var(--faint)">@</span> ${esc(tp(i.domainId, i.tpId)?.name || "?")} <span style="color:var(--faint)">· ${domain(i.domainId).name}</span></div>`;
-        }).join("") : `<div class="empty" style="padding:.6rem 0;text-align:left">Noch nirgends eingeplant.</div>`}
-      </div>
-      <div style="display:flex;gap:12px;margin-top:10px">
-        <span class="medit" data-medit="${m.id}">Bearbeiten</span>
-        <span class="medit" data-mdel-card="${m.id}" style="color:var(--red)">Löschen</span>
-      </div></div>`;
-  }).join("");
+  const dim = cur().ui.glossDim || "mech";
+  const dimSel = $("#gloss-dim"); if (dimSel && dimSel.value !== dim) dimSel.value = dim;
+  const addBtn = $("#btn-add-mech"); if (addBtn) addBtn.style.display = dim === "mech" ? "" : "none";
+  const hint = $("#gloss-hint");
+  if (hint) hint.textContent = dim === "mech"
+    ? "Einsatzorte aus der Matrix automatisch verknüpft"
+    : "Werte entstehen durch Zuordnung an Karten · umbenennen/zusammenführen wirkt überall";
+  const grid = $("#gloss-grid");
+  if (dim === "mech") { grid.innerHTML = cur().mechanisms.map(mechCard).join(""); return; }
+  const key = dim, vals = distinctVals(key);
+  grid.innerHTML = vals.length
+    ? vals.map(v => valueCard(key, v, vals)).join("")
+    : `<div class="empty" style="text-align:left">Noch keine ${dim === "action" ? "Aktionen" : "Artikel"} vergeben — entstehen durch Zuordnung an Karten.</div>`;
 }
 
 /* ---------- summary (Matrix in Textform) ---------- */
@@ -983,43 +1020,13 @@ function copyText(txt) {
   document.body.removeChild(ta);
 }
 
-/* ---------- Aktionen & Artikel verwalten ---------- */
-const AA_KEYS = [{ key: "action", label: "Aktionen" }, { key: "article", label: "Artikel" }];
-function openManageDrawer() {
-  drawerCell = null; drawerEditing = null; drawerMech = null; drawerManage = true;
-  renderManageDrawer();
-  $("#scrim").classList.add("open"); $("#drawer").classList.add("open");
-}
-function renderManageDrawer() {
-  if (!drawerManage) return;
-  $("#drawer-ctx").textContent = "Zusammenfassung";
-  $("#drawer-title").textContent = "Aktionen & Artikel verwalten";
-  let html = AA_KEYS.map(({ key, label }) => {
-    const vals = distinctVals(key);
-    const rows = vals.length ? vals.map(v => {
-      const count = cur().ideas.filter(i => (i[key] || "").trim() === v).length;
-      const others = vals.filter(o => o !== v);
-      return `<div class="aa-item">
-        <input class="tf aa-name" data-aaedit="${key}" data-aaold="${esc(v)}" value="${esc(v)}">
-        <span class="aa-count">${count} Karte${count === 1 ? "" : "n"}</span>
-        <select class="select" data-aamerge="${key}" data-aafrom="${esc(v)}">
-          <option value="">zusammenführen …</option>
-          ${others.map(o => `<option value="${esc(o)}">→ ${esc(o)}</option>`).join("")}
-        </select>
-        <button class="link-del" data-aadel="${key}" data-aaval="${esc(v)}" title="von allen Karten entfernen">✕</button>
-      </div>`;
-    }).join("") : `<div class="empty" style="padding:.6rem 0;text-align:left">Noch keine ${label}.</div>`;
-    return `<div class="aa-manage-sec"><div class="uses-h">${label} · ${vals.length}</div>${rows}</div>`;
-  }).join("");
-  html += `<div class="kw-hint">Umbenennen wirkt auf alle zugeordneten Karten. „Zusammenführen" verschiebt alle Karten auf den Zielwert. ✕ entfernt den Wert von allen Karten.</div>`;
-  $("#drawer-body").innerHTML = html;
-}
+/* ---------- Aktionen & Artikel: Werte über alle Karten pflegen ---------- */
 function renameValue(key, oldVal, newVal) {
   oldVal = (oldVal || "").trim(); newVal = (newVal || "").trim();
   if (oldVal === newVal) return;
   let n = 0;
   cur().ideas.forEach(i => { if ((i[key] || "").trim() === oldVal) { i[key] = newVal; i.updatedAt = nowTs(); n++; } });
-  if (n) { save(); render(); renderManageDrawer(); toast(newVal ? "Umbenannt." : "Entfernt."); }
+  if (n) { save(); render(); toast(newVal ? "Umbenannt." : "Entfernt."); }
 }
 function mergeValue(key, fromVal, toVal) {
   fromVal = (fromVal || "").trim(); toVal = (toVal || "").trim();
@@ -1081,7 +1088,7 @@ document.addEventListener("click", e => {
 
   if (t.closest("#f-clear")) { cur().ui.filterMech = ""; cur().ui.filterStatus = ""; save(); renderFilterRow(); renderGrid(); return; }
   if (t.closest("#tlf-clear")) { cur().ui.tl = { domain: "", tp: "", mech: "", status: "" }; save(); renderTlFilters(); renderTimeline(); return; }
-  if (t.id === "scrim" || t.id === "drawer-close") { closeDrawer(); drawerMech = null; drawerManage = false; return; }
+  if (t.id === "scrim" || t.id === "drawer-close") { closeDrawer(); drawerMech = null; return; }
 
   if (t.dataset.addcard) { drawerEditing = "new"; renderDrawer(); return; }
   if (t.dataset.cancel) { drawerEditing = null; renderDrawer(); return; }
@@ -1147,7 +1154,6 @@ document.addEventListener("click", e => {
   if (t.id === "btn-import") { $("#file-input").click(); return; }
   if (t.id === "btn-print") { window.print(); return; }
   if (t.id === "btn-copy-summary") { copyText(summaryText()); return; }
-  if (t.id === "btn-manage-aa") { openManageDrawer(); return; }
   if (t.dataset.aadel) { removeValue(t.dataset.aadel, t.dataset.aaval); return; }
   if (t.closest("#sum-since-clear")) { cur().ui.sumSince = ""; save(); renderSummary(); return; }
   if (t.id === "camp-new") { newCampaign(); return; }
@@ -1205,6 +1211,7 @@ document.addEventListener("change", e => {
   const id = e.target.id;
   if (id === "camp-select") { state.activeCampaignId = e.target.value; save(); render(); switchView("matrix"); return; }
   if (id === "sum-seg") { cur().ui.sumSeg = e.target.value || ""; save(); renderSummary(); return; }
+  if (id === "gloss-dim") { cur().ui.glossDim = e.target.value || "mech"; save(); renderGlossary(); return; }
   if (id === "sum-action") { cur().ui.sumAction = e.target.value || ""; save(); renderSummary(); return; }
   if (id === "sum-article") { cur().ui.sumArticle = e.target.value || ""; save(); renderSummary(); return; }
   if (id === "sum-since") { cur().ui.sumSince = e.target.value || ""; save(); renderSummary(); return; }

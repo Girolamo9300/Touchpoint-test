@@ -296,7 +296,8 @@
         </select>
         <span class="row-label" id="gloss-hint" style="margin-right:0; text-transform:none; letter-spacing:0"></span>
       </span>
-      <span style="display:flex; gap:6px">
+      <span style="display:flex; gap:6px; align-items:center">
+        <input class="select" id="gloss-new-name" placeholder="Name…" style="font-size:12px; display:none">
         <button class="btn btn-primary" id="btn-add-mech">+ Mechanismus</button>
         <button class="btn btn-primary" id="btn-add-val" style="display:none">+ Aktion</button>
       </span>
@@ -883,6 +884,8 @@ function renderGlossary() {
   const addMech = $("#btn-add-mech"); if (addMech) addMech.style.display = dim === "mech" ? "" : "none";
   const addVal = $("#btn-add-val");
   if (addVal) { addVal.style.display = dim === "mech" ? "none" : ""; addVal.textContent = dim === "action" ? "+ Aktion" : "+ Artikel"; }
+  const newInp = $("#gloss-new-name");
+  if (newInp) { newInp.style.display = dim === "mech" ? "none" : ""; newInp.placeholder = (dim === "action" ? "Aktion" : "Artikel") + " hinzufügen…"; }
   const hint = $("#gloss-hint");
   if (hint) hint.textContent = dim === "mech"
     ? "Einsatzorte aus der Matrix automatisch verknüpft"
@@ -1035,10 +1038,11 @@ function copyText(txt) {
 /* ---------- Aktionen & Artikel: Werte über alle Karten pflegen ---------- */
 function addValue(key) {
   const label = key === "action" ? "Aktion" : "Artikel";
-  const n = prompt(`Name der neuen ${label}?`); if (!n || !n.trim()) return;
-  const v = n.trim();
+  const inp = $("#gloss-new-name");
+  const v = (inp ? inp.value : "").trim();
+  if (!v) { toast(`Bitte einen Namen für die ${label} eingeben.`); inp?.focus(); return; }
   if (allVals(key).includes(v)) { toast(`${label} existiert bereits.`); return; }
-  regFor(key).push(v); save(); render(); toast(`${label} angelegt.`);
+  regFor(key).push(v); if (inp) inp.value = ""; save(); render(); toast(`${label} angelegt.`);
 }
 function renameValue(key, oldVal, newVal) {
   oldVal = (oldVal || "").trim(); newVal = (newVal || "").trim();
@@ -1255,7 +1259,10 @@ document.addEventListener("change", e => {
     rd.readAsText(f); e.target.value = "";
   }
 });
-document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") closeDrawer();
+  if (e.key === "Enter" && e.target.id === "gloss-new-name") { e.preventDefault(); addValue(cur().ui.glossDim || "mech"); }
+});
 
 (async function () { await load(); render(); })();
 </script>

@@ -210,6 +210,16 @@
   .footer { margin-top: 2.5rem; font-size: 11px; color: var(--faint); border-top: 0.5px solid var(--border); padding-top: 1rem; }
   .footer:empty { display: none; }
 
+  /* ---- Summary ---- */
+  #summary-body { margin-top: .5rem; max-width: 920px; }
+  .sum-seg { padding: .9rem 0; border-bottom: 0.5px solid var(--border-soft); }
+  .sum-seg-h { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .sum-group-h { font-size: 11px; font-weight: 600; color: var(--faint); letter-spacing: .04em; text-transform: uppercase; margin: .75rem 0 .35rem 18px; }
+  .sum-idea { margin: 0 0 .5rem 18px; font-size: 13px; line-height: 1.5; }
+  .sum-idea .t { font-weight: 500; }
+  .sum-idea .imeta { display: inline-flex; gap: 6px; margin-left: 4px; vertical-align: middle; }
+  .sum-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+
   @media (max-width: 640px) { .metric-grid { grid-template-columns: 1fr 1fr; } .wrap { padding: 1.25rem 1rem 3rem; } }
   @media print {
     body { background: #fff; } .toolbar, .viewtabs, .row, .cell-add, .drawer, .scrim, .footer .noprint { display: none !important; }
@@ -247,6 +257,7 @@
     <div class="viewtab active" data-view="matrix">Matrix</div>
     <div class="viewtab" data-view="timeline">Zeitstrahl</div>
     <div class="viewtab" data-view="glossary">Mechanismus-Glossar</div>
+    <div class="viewtab" data-view="summary">Zusammenfassung</div>
   </div>
 
   <div id="view-matrix">
@@ -269,6 +280,14 @@
       <button class="btn btn-primary" id="btn-add-mech">+ Mechanismus</button>
     </div>
     <div class="gloss-grid" id="gloss-grid"></div>
+  </div>
+
+  <div id="view-summary" style="display:none">
+    <div class="row" style="margin-top:1.5rem; justify-content:space-between">
+      <span class="row-label" id="sum-totals"></span>
+      <button class="btn" id="btn-copy-summary">Als Text kopieren</button>
+    </div>
+    <div id="summary-body"></div>
   </div>
 
   <div class="footer" id="footer"></div>
@@ -798,18 +817,81 @@ function renderGlossary() {
   }).join("");
 }
 
+/* ---------- summary (Matrix in Textform) ---------- */
+function renderSummary() {
+  const c = cur(), all = c.ideas;
+  $("#sum-totals").textContent =
+    `${all.length} Idee${all.length === 1 ? "" : "n"} · ${all.filter(i => i.status === "geplant").length} geplant · ${all.filter(i => i.status === "live").length} live · ${all.filter(i => i.timing).length} mit Timing`;
+  if (!all.length) { $("#summary-body").innerHTML = `<div class="empty">Noch keine Ideen in dieser Kampagne.</div>`; return; }
+  let html = "";
+  c.segments.forEach(s => {
+    const segIdeas = all.filter(i => i.segId === s.id);
+    html += `<div class="sum-seg"><div class="sum-seg-h"><span class="seg-dot" style="background:${s.color}"></span>${esc(s.name)}` +
+      `<span style="color:var(--faint);font-weight:400;font-size:12px">· ${segIdeas.length} Idee${segIdeas.length === 1 ? "" : "n"}${s.meta ? " · " + esc(s.meta) : ""}</span></div>`;
+    if (!segIdeas.length) { html += `<div class="sum-idea" style="color:var(--faint)">— keine Ideen</div></div>`; return; }
+    c.domains.forEach(d => d.touchpoints.forEach(t => {
+      const cell = segIdeas.filter(i => i.domainId === d.id && i.tpId === t.id);
+      if (!cell.length) return;
+      html += `<div class="sum-group-h">${esc(d.name)} › ${esc(t.name)}</div>`;
+      cell.forEach(i => {
+        const mechs = i.mechs.map(mid => mech(mid)?.name).filter(Boolean);
+        const stars = i.prio ? `<span class="stars">${"★".repeat(i.prio)}</span>` : "";
+        const kw = i.timing ? `<span class="kwtag">${kwLabel(i.timing)}</span>` : "";
+        html += `<div class="sum-idea"><span class="t">${esc(i.title)}</span>` +
+          `<span class="imeta"><span class="stat stat-${i.status}">${i.status}</span>${stars}${kw}</span>` +
+          `${mechs.length ? `<div class="sum-sub">Mechanismen: ${mechs.map(esc).join(", ")}</div>` : ""}` +
+          `${i.desc ? `<div class="sum-sub">${esc(i.desc)}</div>` : ""}</div>`;
+      });
+    }));
+    html += `</div>`;
+  });
+  $("#summary-body").innerHTML = html;
+}
+function summaryText() {
+  const c = cur(), all = c.ideas;
+  let out = `${c.name}\n${all.length} Ideen · ${all.filter(i => i.status === "geplant").length} geplant · ${all.filter(i => i.status === "live").length} live · ${all.filter(i => i.timing).length} mit Timing\n`;
+  c.segments.forEach(s => {
+    const segIdeas = all.filter(i => i.segId === s.id);
+    out += `\n## ${s.name} (${segIdeas.length})${s.meta ? " — " + s.meta : ""}\n`;
+    if (!segIdeas.length) { out += `  — keine Ideen\n`; return; }
+    c.domains.forEach(d => d.touchpoints.forEach(t => {
+      const cell = segIdeas.filter(i => i.domainId === d.id && i.tpId === t.id);
+      if (!cell.length) return;
+      out += `  ${d.name} › ${t.name}\n`;
+      cell.forEach(i => {
+        const mechs = i.mechs.map(mid => mech(mid)?.name).filter(Boolean);
+        out += `    • ${i.title} [${i.status}${i.prio ? ", Prio " + i.prio : ""}${i.timing ? ", " + kwLabel(i.timing) : ""}]\n`;
+        if (mechs.length) out += `      Mechanismen: ${mechs.join(", ")}\n`;
+        if (i.desc) out += `      ${i.desc}\n`;
+      });
+    }));
+  });
+  return out;
+}
+function copyText(txt) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(txt); toast("Zusammenfassung kopiert."); return; }
+  } catch (e) {}
+  const ta = document.createElement("textarea"); ta.value = txt;
+  ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); toast("Zusammenfassung kopiert."); } catch (e) { toast("Kopieren nicht möglich."); }
+  document.body.removeChild(ta);
+}
+
 /* ---------- view switch + render ---------- */
 function switchView(v) {
   $$(".viewtab").forEach(x => x.classList.toggle("active", x.dataset.view === v));
   $("#view-matrix").style.display = v === "matrix" ? "" : "none";
   $("#view-timeline").style.display = v === "timeline" ? "" : "none";
   $("#view-glossary").style.display = v === "glossary" ? "" : "none";
+  $("#view-summary").style.display = v === "summary" ? "" : "none";
   if (v === "timeline") { renderTlFilters(); renderTimeline(); }
+  if (v === "summary") renderSummary();
 }
 function render() {
   renderCampaignBar();
   renderMetrics(); renderDomainRow(); renderFilterRow(); renderGrid();
-  renderTlFilters(); renderTimeline(); renderGlossary();
+  renderTlFilters(); renderTimeline(); renderGlossary(); renderSummary();
   if (!storageOK && !$("#sw")) $(".footer").insertAdjacentHTML("beforeend", ` <b id="sw" style="color:var(--amber)">· Speicher nicht verfügbar – bitte exportieren.</b>`);
 }
 
@@ -908,6 +990,7 @@ document.addEventListener("click", e => {
   if (t.dataset.export) { exportData(t.dataset.export); $("#export-menu").hidden = true; return; }
   if (t.id === "btn-import") { $("#file-input").click(); return; }
   if (t.id === "btn-print") { window.print(); return; }
+  if (t.id === "btn-copy-summary") { copyText(summaryText()); return; }
   if (t.id === "camp-new") { newCampaign(); return; }
   if (t.id === "camp-rename") { renameCampaign(); return; }
   if (t.id === "camp-del") { deleteCampaign(); return; }

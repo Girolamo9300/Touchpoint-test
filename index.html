@@ -31,6 +31,16 @@
   .btn:hover { border-color: var(--accent-border); color: var(--accent); }
   .btn-primary { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-border); }
 
+  .camp-bar { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .camp-select { font-size: 13px; font-weight: 500; max-width: 320px; }
+  .camp-act { font-size: 11px; padding: 4px 9px; }
+  .export-wrap { position: relative; display: inline-block; }
+  .export-menu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; background: var(--surface);
+    border: 0.5px solid var(--border); border-radius: 9px; box-shadow: 0 6px 20px rgba(0,0,0,.12); padding: 4px; min-width: 180px; }
+  .export-menu[hidden] { display: none; }
+  .export-opt { font-size: 12.5px; padding: 7px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+  .export-opt:hover { background: var(--surface-alt); color: var(--accent); }
+
   .viewtabs { display: flex; gap: 4px; margin: 1.5rem 0 0; border-bottom: 0.5px solid var(--border); }
   .viewtab { font-size: 13px; padding: 8px 14px; cursor: pointer; color: var(--muted);
     border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .15s; }
@@ -206,11 +216,23 @@
   <header>
     <div>
       <h1>Touchpoint-Werkstatt</h1>
-      <p class="subtitle">FMCG-Aktivierung Herbst 2026 · Segmente × Touchpoints · Ideen, Mechanismen &amp; Timing</p>
+      <div class="camp-bar">
+        <select class="select camp-select" id="camp-select" title="Kampagne wählen"></select>
+        <button class="btn camp-act" id="camp-new">+ Neue Kampagne</button>
+        <button class="btn camp-act" id="camp-rename">Umbenennen</button>
+        <button class="btn camp-act" id="camp-del">Löschen</button>
+      </div>
+      <p class="subtitle" id="camp-subtitle"></p>
     </div>
     <div class="toolbar">
       <button class="btn" id="btn-import">Import</button>
-      <button class="btn" id="btn-export">Export</button>
+      <div class="export-wrap">
+        <button class="btn" id="btn-export">Export ▾</button>
+        <div class="export-menu" id="export-menu" hidden>
+          <div class="export-opt" data-export="campaign">Aktive Kampagne</div>
+          <div class="export-opt" data-export="workspace">Gesamter Workspace</div>
+        </div>
+      </div>
       <button class="btn" id="btn-print">Drucken</button>
       <input type="file" id="file-input" accept="application/json" hidden>
     </div>
@@ -342,11 +364,45 @@ function seed() {
       mechs: ["m_sort", "m_price"], prio: 1, status: "idee",
       timing: { fy: 2026, fw: 46, ty: 2026, tw: 52 } }
   ];
-  return { segments, domains, mechanisms, ideas,
+  return {
+    id: "c_seed", name: "FMCG-Aktivierung Herbst 2026",
+    subtitle: "Segmente × Touchpoints · Ideen, Mechanismen & Timing",
+    segments, domains, mechanisms, ideas,
     ui: { domain: "shop", filterMech: "", filterStatus: "", tl: { domain: "", tp: "", mech: "", status: "" } } };
 }
+function seedWorkspace() { const c = seed(); return { version: 2, activeCampaignId: c.id, campaigns: [c] }; }
 
-let state = seed();
+/* aktive Kampagne */
+function cur() { return state.campaigns.find(c => c.id === state.activeCampaignId) || state.campaigns[0]; }
+
+/* defensive Migration einer einzelnen Kampagne */
+function migrateCampaign(c) {
+  c = c || {};
+  if (!c.id) c.id = "c_" + uid();
+  if (!c.name) c.name = "Kampagne";
+  if (typeof c.subtitle !== "string") c.subtitle = "";
+  c.segments = c.segments || []; c.domains = c.domains || [];
+  c.mechanisms = c.mechanisms || []; c.ideas = c.ideas || [];
+  if (!c.ui) c.ui = { domain: c.domains[0]?.id || "shop", filterMech: "", filterStatus: "" };
+  if (!c.ui.tl) c.ui.tl = { domain: "", tp: "", mech: "", status: "" };
+  c.ideas.forEach(i => { if (!Array.isArray(i.mechs)) i.mechs = []; if (i.timing === undefined) i.timing = null; });
+  return c;
+}
+/* Migration eines geladenen/importierten Workspace (inkl. altem v1-Einzelobjekt) */
+function migrateWorkspace(w) {
+  if (!w || !Array.isArray(w.campaigns)) {
+    const camp = migrateCampaign(w);
+    camp.name = "FMCG-Aktivierung Herbst 2026";
+    if (!camp.subtitle) camp.subtitle = "Segmente × Touchpoints · Ideen, Mechanismen & Timing";
+    return { version: 2, activeCampaignId: camp.id, campaigns: [camp] };
+  }
+  w.version = 2;
+  w.campaigns = w.campaigns.map(migrateCampaign);
+  if (!w.activeCampaignId || !w.campaigns.find(c => c.id === w.activeCampaignId)) w.activeCampaignId = w.campaigns[0]?.id;
+  return w;
+}
+
+let state = seedWorkspace();
 let storageOK = true;
 // Speicher-Backend automatisch wählen: in der Claude-Umgebung window.storage, sonst localStorage
 const hasWS = typeof window !== "undefined" && window.storage && typeof window.storage.get === "function";
@@ -355,11 +411,7 @@ async function load() {
   let raw = null;
   if (hasWS) { try { const r = await window.storage.get(KEY, false); if (r && r.value) raw = r.value; } catch (e) {} }
   else { try { raw = localStorage.getItem(KEY); } catch (e) {} }
-  if (raw) { try { state = JSON.parse(raw); } catch (e) {} }
-  // defensive migration
-  if (!state.ui) state.ui = { domain: state.domains?.[0]?.id || "shop", filterMech: "", filterStatus: "" };
-  if (!state.ui.tl) state.ui.tl = { domain: "", tp: "", mech: "", status: "" };
-  state.ideas.forEach(i => { if (!Array.isArray(i.mechs)) i.mechs = []; if (i.timing === undefined) i.timing = null; });
+  if (raw) { try { state = migrateWorkspace(JSON.parse(raw)); } catch (e) {} }
 }
 let saveT;
 function save() {
@@ -375,11 +427,11 @@ function save() {
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => (s || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const seg = id => state.segments.find(s => s.id === id);
-const mech = id => state.mechanisms.find(m => m.id === id);
-const domain = id => state.domains.find(d => d.id === id);
+const seg = id => cur().segments.find(s => s.id === id);
+const mech = id => cur().mechanisms.find(m => m.id === id);
+const domain = id => cur().domains.find(d => d.id === id);
 const tp = (dom, id) => domain(dom)?.touchpoints.find(t => t.id === id);
-const cellIdeas = (dom, tpId, segId) => state.ideas.filter(i => i.domainId === dom && i.tpId === tpId && i.segId === segId);
+const cellIdeas = (dom, tpId, segId) => cur().ideas.filter(i => i.domainId === dom && i.tpId === tpId && i.segId === segId);
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 1600); }
 
 /* ---------- ISO week helpers ---------- */
@@ -404,7 +456,7 @@ function isoWeekMonday(y, w) {
 
 /* ---------- metrics ---------- */
 function renderMetrics() {
-  const all = state.ideas;
+  const all = cur().ideas;
   const cards = [
     ["Ideen gesamt", all.length],
     ["geplant", all.filter(i => i.status === "geplant").length],
@@ -417,24 +469,24 @@ function renderMetrics() {
 /* ---------- matrix rows ---------- */
 function renderDomainRow() {
   $("#domain-row").innerHTML = `<span class="row-label">Domäne</span>` +
-    state.domains.map(d => `<span class="chip ${d.id === state.ui.domain ? "active" : ""}" data-dom="${d.id}">${esc(d.name)}</span>`).join("") +
+    cur().domains.map(d => `<span class="chip ${d.id === cur().ui.domain ? "active" : ""}" data-dom="${d.id}">${esc(d.name)}</span>`).join("") +
     `<span class="chip chip-add" id="add-domain">+ Domäne</span>`;
 }
 function renderFilterRow() {
   const mechOpts = `<option value="">Mechanismus: alle</option>` +
-    state.mechanisms.map(m => `<option value="${m.id}" ${state.ui.filterMech === m.id ? "selected" : ""}>${esc(m.name)}</option>`).join("");
+    cur().mechanisms.map(m => `<option value="${m.id}" ${cur().ui.filterMech === m.id ? "selected" : ""}>${esc(m.name)}</option>`).join("");
   const statOpts = `<option value="">Status: alle</option>` +
-    STATUSES.map(s => `<option value="${s}" ${state.ui.filterStatus === s ? "selected" : ""}>${s}</option>`).join("");
+    STATUSES.map(s => `<option value="${s}" ${cur().ui.filterStatus === s ? "selected" : ""}>${s}</option>`).join("");
   $("#filter-row").innerHTML = `<span class="row-label">Filter</span>
     <select class="select" id="f-mech">${mechOpts}</select>
     <select class="select" id="f-stat">${statOpts}</select>
-    ${(state.ui.filterMech || state.ui.filterStatus) ? `<span class="chip" id="f-clear">Filter zurücksetzen <span class="x">✕</span></span>` : ""}`;
+    ${(cur().ui.filterMech || cur().ui.filterStatus) ? `<span class="chip" id="f-clear">Filter zurücksetzen <span class="x">✕</span></span>` : ""}`;
 }
 
 /* ---------- matrix grid ---------- */
 function matchMatrix(i) {
-  if (state.ui.filterMech && !i.mechs.includes(state.ui.filterMech)) return false;
-  if (state.ui.filterStatus && i.status !== state.ui.filterStatus) return false;
+  if (cur().ui.filterMech && !i.mechs.includes(cur().ui.filterMech)) return false;
+  if (cur().ui.filterStatus && i.status !== cur().ui.filterStatus) return false;
   return true;
 }
 function kwLabel(t) { return t ? `KW${t.fw}${t.fy !== t.ty || t.fw !== t.tw ? "–" + (t.ty !== t.fy ? t.ty % 100 + "/" : "") + t.tw : ""}` : ""; }
@@ -448,16 +500,16 @@ function ideaMini(i) {
     <div class="imeta">${dots}${stars}${kw}<span class="stat stat-${i.status}">${i.status}</span></div></div>`;
 }
 function renderGrid() {
-  const dom = state.ui.domain, tps = domain(dom).touchpoints, grid = $("#grid");
+  const dom = cur().ui.domain, tps = domain(dom).touchpoints, grid = $("#grid");
   grid.style.gridTemplateColumns = `220px repeat(${tps.length}, minmax(190px, 1fr)) 132px`;
   let html = `<div class="gcorner">Segment ╲ Touchpoint</div>`;
   tps.forEach(t => { html += `<div class="gcell ghead">${esc(t.name)}<span class="tp-edit" data-tpedit="${t.id}">✎</span></div>`; });
   html += `<div class="gcell ghead" style="background:var(--surface)"><span class="chip chip-add" id="add-tp" style="padding:3px 9px">+ Touchpoint</span></div>`;
-  state.segments.forEach(s => {
+  cur().segments.forEach(s => {
     html += `<div class="gcell gseg" data-segedit="${s.id}"><div class="seg-name"><span class="seg-dot" style="background:${s.color}"></span>${esc(s.name)}</div>${s.meta ? `<div class="seg-meta">${esc(s.meta)}</div>` : ""}</div>`;
     tps.forEach(t => {
       const list = cellIdeas(dom, t.id, s.id), shown = list.filter(matchMatrix);
-      const dim = (state.ui.filterMech || state.ui.filterStatus) && shown.length === 0 && list.length > 0;
+      const dim = (cur().ui.filterMech || cur().ui.filterStatus) && shown.length === 0 && list.length > 0;
       html += `<div class="gcell gbody ${dim ? "dim" : ""}" data-cell="${t.id}::${s.id}">
         ${list.length ? `<span class="cell-count">${shown.length < list.length ? shown.length + "/" : ""}${list.length}</span>` : ""}
         ${shown.map(ideaMini).join("")}
@@ -470,13 +522,13 @@ function renderGrid() {
 
 /* ---------- timeline ---------- */
 function renderTlFilters() {
-  const tl = state.ui.tl;
+  const tl = cur().ui.tl;
   const domOpts = `<option value="">Domäne: alle</option>` +
-    state.domains.map(d => `<option value="${d.id}" ${tl.domain === d.id ? "selected" : ""}>${esc(d.name)}</option>`).join("");
+    cur().domains.map(d => `<option value="${d.id}" ${tl.domain === d.id ? "selected" : ""}>${esc(d.name)}</option>`).join("");
   let tpOpts = `<option value="">Touchpoint: alle</option>`;
   if (tl.domain) tpOpts += domain(tl.domain).touchpoints.map(t => `<option value="${t.id}" ${tl.tp === t.id ? "selected" : ""}>${esc(t.name)}</option>`).join("");
   const mechOpts = `<option value="">Mechanismus: alle</option>` +
-    state.mechanisms.map(m => `<option value="${m.id}" ${tl.mech === m.id ? "selected" : ""}>${esc(m.name)}</option>`).join("");
+    cur().mechanisms.map(m => `<option value="${m.id}" ${tl.mech === m.id ? "selected" : ""}>${esc(m.name)}</option>`).join("");
   const statOpts = `<option value="">Status: alle</option>` +
     STATUSES.map(s => `<option value="${s}" ${tl.status === s ? "selected" : ""}>${s}</option>`).join("");
   $("#tl-filter-row").innerHTML = `<span class="row-label">Filter</span>
@@ -487,7 +539,7 @@ function renderTlFilters() {
     ${(tl.domain || tl.tp || tl.mech || tl.status) ? `<span class="chip" id="tlf-clear">Filter zurücksetzen <span class="x">✕</span></span>` : ""}`;
 }
 function matchTl(i) {
-  const tl = state.ui.tl;
+  const tl = cur().ui.tl;
   if (tl.domain && i.domainId !== tl.domain) return false;
   if (tl.tp && i.tpId !== tl.tp) return false;
   if (tl.mech && !i.mechs.includes(tl.mech)) return false;
@@ -508,7 +560,7 @@ function renderTimeline() {
   const COLW = 26, TRACKH = 28, LANEPAD = 8;
   // frame
   let minIdx = weekToIdx(2026, 35), maxIdx = weekToIdx(2027, 9);
-  state.ideas.filter(i => i.timing && matchTl(i)).forEach(i => {
+  cur().ideas.filter(i => i.timing && matchTl(i)).forEach(i => {
     const s = weekToIdx(i.timing.fy, i.timing.fw), e = weekToIdx(i.timing.ty, i.timing.tw);
     minIdx = Math.min(minIdx, s, e); maxIdx = Math.max(maxIdx, s, e);
   });
@@ -546,14 +598,14 @@ function renderTimeline() {
   });
   function var_left(idx) { return /* lane label width */ 168 + (idx - minIdx) * COLW; }
 
-  state.segments.forEach(s => {
-    const cards = state.ideas.filter(i => i.segId === s.id && i.timing && matchTl(i)).map(i => {
+  cur().segments.forEach(s => {
+    const cards = cur().ideas.filter(i => i.segId === s.id && i.timing && matchTl(i)).map(i => {
       const a = weekToIdx(i.timing.fy, i.timing.fw), b = weekToIdx(i.timing.ty, i.timing.tw);
       return Object.assign({}, i, { _s: Math.min(a, b), _e: Math.max(a, b) });
     });
     const trackCount = packTracks(cards);
     const laneH = trackCount * TRACKH + LANEPAD;
-    const untimed = state.ideas.filter(i => i.segId === s.id && !i.timing && matchTl(i));
+    const untimed = cur().ideas.filter(i => i.segId === s.id && !i.timing && matchTl(i));
     let bars = "";
     cards.forEach(c => {
       const left = (c._s - minIdx) * COLW + 1, width = (c._e - c._s + 1) * COLW - 2, top = c._track * TRACKH + 4;
@@ -600,7 +652,7 @@ function renderTimeline() {
 let drawerCell = null;
 let drawerEditing = null; // null = Liste | ideaId | "new"
 function openCell(tpId, segId, dom) {
-  drawerCell = { tpId, segId, dom: dom || state.ui.domain };
+  drawerCell = { tpId, segId, dom: dom || cur().ui.domain };
   drawerEditing = cellIdeas(drawerCell.dom, tpId, segId).length ? null : "new";
   renderDrawer();
   $("#scrim").classList.add("open"); $("#drawer").classList.add("open");
@@ -649,7 +701,7 @@ function editorFields(i) {
     <label class="fl">Beschreibung</label>
     <textarea class="tf f-desc" rows="3" placeholder="Wie entwickeln wir das Segment hier im FMCG-Verhalten weiter?">${i ? esc(i.desc) : ""}</textarea>
     <label class="fl">Mechanismen</label>
-    <div class="mech-pick">${state.mechanisms.map(m => `<span class="mech-chip ${mechs.includes(m.id) ? "on" : ""}" data-mech="${m.id}"><span class="mdot" style="background:${CATS[m.cat].color}"></span>${esc(m.name)}</span>`).join("")}</div>
+    <div class="mech-pick">${cur().mechanisms.map(m => `<span class="mech-chip ${mechs.includes(m.id) ? "on" : ""}" data-mech="${m.id}"><span class="mdot" style="background:${CATS[m.cat].color}"></span>${esc(m.name)}</span>`).join("")}</div>
     <label class="fl">Timing · Kalenderwoche (optional)</label>
     <div class="kw-row">
       <span class="kw-lbl">von</span><select class="tf-mini f-fy">${yOpts(t ? t.fy : 2026)}</select>
@@ -716,7 +768,7 @@ function renderMechDrawer() {
     </div>
   </div>`;
   if (!isNew) {
-    const uses = state.ideas.filter(i => i.mechs.includes(m.id));
+    const uses = cur().ideas.filter(i => i.mechs.includes(m.id));
     html += `<div style="margin-top:1rem"><div class="uses-h">Einsatzorte · ${uses.length}</div>
       ${uses.length ? uses.map(i => { const s = seg(i.segId);
         return `<div class="use-item" data-jump="${i.domainId}::${i.tpId}::${i.segId}"><span class="use-seg" style="background:${s.color}"></span>${esc(s.name)} <span style="color:var(--faint)">@</span> ${esc(tp(i.domainId, i.tpId)?.name || "?")} <span style="color:var(--faint)">· ${domain(i.domainId).name}</span></div>`;
@@ -726,8 +778,8 @@ function renderMechDrawer() {
   $("#drawer-body").innerHTML = html;
 }
 function renderGlossary() {
-  $("#gloss-grid").innerHTML = state.mechanisms.map(m => {
-    const uses = state.ideas.filter(i => i.mechs.includes(m.id)), cat = CATS[m.cat];
+  $("#gloss-grid").innerHTML = cur().mechanisms.map(m => {
+    const uses = cur().ideas.filter(i => i.mechs.includes(m.id)), cat = CATS[m.cat];
     return `<div class="mcard">
       <div class="mtop"><div class="mname"><span class="mdot" style="width:9px;height:9px;background:${cat.color}"></span>${esc(m.name)}</div>
         <span class="catbadge" style="background:${cat.color}1a;color:${cat.color}">${cat.label}</span></div>
@@ -753,6 +805,7 @@ function switchView(v) {
   if (v === "timeline") { renderTlFilters(); renderTimeline(); }
 }
 function render() {
+  renderCampaignBar();
   renderMetrics(); renderDomainRow(); renderFilterRow(); renderGrid();
   renderTlFilters(); renderTimeline(); renderGlossary();
   if (!storageOK && !$("#sw")) $(".footer").insertAdjacentHTML("beforeend", ` <b id="sw" style="color:var(--amber)">· Speicher nicht verfügbar – bitte exportieren.</b>`);
@@ -761,15 +814,17 @@ function render() {
 /* ---------- events ---------- */
 document.addEventListener("click", e => {
   const t = e.target;
+  const em = $("#export-menu");
+  if (em && !em.hidden && t.id !== "btn-export" && !t.closest(".export-menu")) em.hidden = true;
   const vt = t.closest(".viewtab"); if (vt) { switchView(vt.dataset.view); return; }
 
-  if (t.dataset.dom) { state.ui.domain = t.dataset.dom; save(); renderDomainRow(); renderGrid(); return; }
-  if (t.id === "add-domain") { const n = prompt("Name der neuen Domäne?"); if (n) { state.domains.push({ id: "d_" + uid(), name: n.trim(), touchpoints: [] }); save(); renderDomainRow(); } return; }
-  if (t.id === "add-tp") { const n = prompt("Name des neuen Touchpoints?"); if (n) { domain(state.ui.domain).touchpoints.push({ id: "t_" + uid(), name: n.trim() }); save(); renderGrid(); } return; }
+  if (t.dataset.dom) { cur().ui.domain = t.dataset.dom; save(); renderDomainRow(); renderGrid(); return; }
+  if (t.id === "add-domain") { const n = prompt("Name der neuen Domäne?"); if (n) { cur().domains.push({ id: "d_" + uid(), name: n.trim(), touchpoints: [] }); save(); renderDomainRow(); } return; }
+  if (t.id === "add-tp") { const n = prompt("Name des neuen Touchpoints?"); if (n) { domain(cur().ui.domain).touchpoints.push({ id: "t_" + uid(), name: n.trim() }); save(); renderGrid(); } return; }
   if (t.dataset.tpedit) {
-    e.stopPropagation(); const tpt = tp(state.ui.domain, t.dataset.tpedit);
+    e.stopPropagation(); const tpt = tp(cur().ui.domain, t.dataset.tpedit);
     const n = prompt("Touchpoint umbenennen (leer = löschen):", tpt.name); if (n === null) return;
-    if (n.trim() === "") { if (confirm(`Touchpoint „${tpt.name}\" und zugehörige Ideen löschen?`)) { const d = domain(state.ui.domain); d.touchpoints = d.touchpoints.filter(x => x.id !== tpt.id); state.ideas = state.ideas.filter(i => !(i.domainId === d.id && i.tpId === tpt.id)); save(); render(); } }
+    if (n.trim() === "") { if (confirm(`Touchpoint „${tpt.name}\" und zugehörige Ideen löschen?`)) { const d = domain(cur().ui.domain); d.touchpoints = d.touchpoints.filter(x => x.id !== tpt.id); cur().ideas = cur().ideas.filter(i => !(i.domainId === d.id && i.tpId === tpt.id)); save(); render(); } }
     else { tpt.name = n.trim(); save(); renderGrid(); } return;
   }
   if (t.closest("[data-segedit]") && !t.closest(".gbody")) {
@@ -779,14 +834,14 @@ document.addEventListener("click", e => {
   const cell = t.closest(".gbody");
   if (cell && !t.closest(".idea")) { const [tpId, segId] = cell.dataset.cell.split("::"); openCell(tpId, segId); return; }
   const ideaEl = t.closest(".idea");
-  if (ideaEl) { const i = state.ideas.find(x => x.id === ideaEl.dataset.idea); if (i) { openCell(i.tpId, i.segId); drawerEditing = i.id; renderDrawer(); } return; }
+  if (ideaEl) { const i = cur().ideas.find(x => x.id === ideaEl.dataset.idea); if (i) { openCell(i.tpId, i.segId); drawerEditing = i.id; renderDrawer(); } return; }
 
   // timeline bar
   const bar = t.closest(".tl-bar");
-  if (bar) { const c = state.ideas.find(x => x.id === bar.dataset.bar); if (c) { state.ui.domain = c.domainId; openCell(c.tpId, c.segId, c.domainId); drawerEditing = c.id; renderDrawer(); } return; }
+  if (bar) { const c = cur().ideas.find(x => x.id === bar.dataset.bar); if (c) { cur().ui.domain = c.domainId; openCell(c.tpId, c.segId, c.domainId); drawerEditing = c.id; renderDrawer(); } return; }
 
-  if (t.closest("#f-clear")) { state.ui.filterMech = ""; state.ui.filterStatus = ""; save(); renderFilterRow(); renderGrid(); return; }
-  if (t.closest("#tlf-clear")) { state.ui.tl = { domain: "", tp: "", mech: "", status: "" }; save(); renderTlFilters(); renderTimeline(); return; }
+  if (t.closest("#f-clear")) { cur().ui.filterMech = ""; cur().ui.filterStatus = ""; save(); renderFilterRow(); renderGrid(); return; }
+  if (t.closest("#tlf-clear")) { cur().ui.tl = { domain: "", tp: "", mech: "", status: "" }; save(); renderTlFilters(); renderTimeline(); return; }
   if (t.id === "scrim" || t.id === "drawer-close") { closeDrawer(); drawerMech = null; return; }
 
   if (t.dataset.addcard) { drawerEditing = "new"; renderDrawer(); return; }
@@ -799,23 +854,23 @@ document.addEventListener("click", e => {
     if (t.dataset.mech) { t.classList.toggle("on"); return; }
     if (t.dataset.prio !== undefined && t.classList.contains("opt")) { $$(".opt[data-prio]", ed).forEach(o => o.classList.toggle("on", o === t)); return; }
     if (t.dataset.status && t.classList.contains("opt")) { $$(".opt[data-status]", ed).forEach(o => o.classList.toggle("on", o === t)); return; }
-    if (t.dataset.del) { if (confirm("Karte löschen?")) { state.ideas = state.ideas.filter(x => x.id !== t.dataset.del); drawerEditing = null; save(); renderDrawer(); render(); } return; }
+    if (t.dataset.del) { if (confirm("Karte löschen?")) { cur().ideas = cur().ideas.filter(x => x.id !== t.dataset.del); drawerEditing = null; save(); renderDrawer(); render(); } return; }
     if (t.dataset.save) {
       const data = readEditor(ed);
       if (!data.title) { toast("Bitte einen Titel eingeben."); return; }
-      if (t.dataset.save === "new") { state.ideas.push({ id: uid(), domainId: drawerCell.dom, tpId: drawerCell.tpId, segId: drawerCell.segId, ...data }); toast("Karte hinzugefügt."); }
-      else { Object.assign(state.ideas.find(x => x.id === t.dataset.save), data); toast("Gespeichert."); }
+      if (t.dataset.save === "new") { cur().ideas.push({ id: uid(), domainId: drawerCell.dom, tpId: drawerCell.tpId, segId: drawerCell.segId, ...data }); toast("Karte hinzugefügt."); }
+      else { Object.assign(cur().ideas.find(x => x.id === t.dataset.save), data); toast("Gespeichert."); }
       drawerEditing = null; save(); renderDrawer(); render(); return;
     }
   }
 
   const jump = t.closest("[data-jump]");
-  if (jump) { const [dom, tpId, segId] = jump.dataset.jump.split("::"); switchView("matrix"); state.ui.domain = dom; renderDomainRow(); renderGrid(); openCell(tpId, segId, dom); return; }
+  if (jump) { const [dom, tpId, segId] = jump.dataset.jump.split("::"); switchView("matrix"); cur().ui.domain = dom; renderDomainRow(); renderGrid(); openCell(tpId, segId, dom); return; }
   if (t.dataset.medit) { openMechDrawer(t.dataset.medit); return; }
   if (t.dataset.mdelCard) {
     if (confirm(`„${mech(t.dataset.mdelCard)?.name}" löschen? Verweise in Karten werden entfernt.`)) {
-      state.mechanisms = state.mechanisms.filter(x => x.id !== t.dataset.mdelCard);
-      state.ideas.forEach(i => i.mechs = i.mechs.filter(x => x !== t.dataset.mdelCard));
+      cur().mechanisms = cur().mechanisms.filter(x => x.id !== t.dataset.mdelCard);
+      cur().ideas.forEach(i => i.mechs = i.mechs.filter(x => x !== t.dataset.mdelCard));
       save(); render();
     } return;
   }
@@ -826,8 +881,8 @@ document.addEventListener("click", e => {
   if (t.dataset.mdel) {
     const mid = t.dataset.mdel;
     if (confirm(`„${mech(mid)?.name}" löschen? Verweise in Karten werden entfernt.`)) {
-      state.mechanisms = state.mechanisms.filter(x => x.id !== mid);
-      state.ideas.forEach(i => i.mechs = i.mechs.filter(x => x !== mid));
+      cur().mechanisms = cur().mechanisms.filter(x => x.id !== mid);
+      cur().ideas.forEach(i => i.mechs = i.mechs.filter(x => x !== mid));
       drawerMech = null; closeDrawer(); save(); render();
     } return;
   }
@@ -838,7 +893,7 @@ document.addEventListener("click", e => {
     const cat = $(".opt.on[data-mcat]", ed)?.dataset.mcat || "incentive";
     const desc = $(".f-mdesc", ed).value.trim();
     if (t.dataset.msave === "new") {
-      state.mechanisms.push({ id: "m_" + uid(), name, cat, desc });
+      cur().mechanisms.push({ id: "m_" + uid(), name, cat, desc });
       toast("Mechanismus hinzugefügt.");
     } else {
       const m = mech(t.dataset.msave);
@@ -847,22 +902,75 @@ document.addEventListener("click", e => {
     }
     drawerMech = null; closeDrawer(); save(); render(); return;
   }
-  if (t.id === "btn-export") { const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "touchpoint-werkstatt.json"; a.click(); URL.revokeObjectURL(a.href); return; }
+  if (t.id === "btn-export") { const m = $("#export-menu"); m.hidden = !m.hidden; return; }
+  if (t.dataset.export) { exportData(t.dataset.export); $("#export-menu").hidden = true; return; }
   if (t.id === "btn-import") { $("#file-input").click(); return; }
   if (t.id === "btn-print") { window.print(); return; }
+  if (t.id === "camp-new") { newCampaign(); return; }
+  if (t.id === "camp-rename") { renameCampaign(); return; }
+  if (t.id === "camp-del") { deleteCampaign(); return; }
 });
+
+function exportData(scope) {
+  const payload = scope === "workspace" ? state : cur();
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  const slug = s => (s || "export").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "export";
+  a.download = (scope === "workspace" ? "touchpoint-workspace" : "kampagne-" + slug(cur().name)) + ".json";
+  a.click(); URL.revokeObjectURL(a.href);
+}
+function importData(parsed) {
+  if (parsed && Array.isArray(parsed.campaigns)) {
+    state = migrateWorkspace(parsed); toast("Workspace importiert.");
+  } else {
+    const camp = migrateCampaign(parsed); camp.id = "c_" + uid();
+    if (!camp.name || camp.name === "Kampagne") camp.name = "Importierte Kampagne";
+    state.campaigns.push(camp); state.activeCampaignId = camp.id; toast("Kampagne importiert.");
+  }
+  save(); render(); switchView("matrix");
+}
+function newCampaign() {
+  const name = prompt("Name der neuen Kampagne?"); if (!name || !name.trim()) return;
+  const withIdeas = confirm("Ideen aus der aktuellen Kampagne mitkopieren?\n\nOK = mit Ideen · Abbrechen = nur Struktur (Segmente, Domänen, Mechanismen)");
+  const src = cur();
+  const clone = JSON.parse(JSON.stringify({ segments: src.segments, domains: src.domains, mechanisms: src.mechanisms, ideas: withIdeas ? src.ideas : [], ui: src.ui }));
+  clone.ideas.forEach(i => i.id = uid());
+  const camp = { id: "c_" + uid(), name: name.trim(), subtitle: src.subtitle || "", ...clone };
+  state.campaigns.push(camp); state.activeCampaignId = camp.id;
+  save(); render(); switchView("matrix"); toast("Kampagne angelegt.");
+}
+function renameCampaign() {
+  const c = cur(); const n = prompt("Kampagne umbenennen:", c.name); if (n === null) return;
+  if (n.trim()) c.name = n.trim();
+  const s = prompt("Untertitel (optional):", c.subtitle || ""); if (s !== null) c.subtitle = s.trim();
+  save(); renderCampaignBar();
+}
+function deleteCampaign() {
+  if (state.campaigns.length <= 1) { toast("Die letzte Kampagne kann nicht gelöscht werden."); return; }
+  const c = cur();
+  if (!confirm(`Kampagne „${c.name}" mit allen Daten unwiderruflich löschen?`)) return;
+  state.campaigns = state.campaigns.filter(x => x.id !== c.id);
+  state.activeCampaignId = state.campaigns[0].id;
+  save(); render(); switchView("matrix"); toast("Kampagne gelöscht.");
+}
+function renderCampaignBar() {
+  $("#camp-select").innerHTML = state.campaigns.map(c => `<option value="${c.id}" ${c.id === state.activeCampaignId ? "selected" : ""}>${esc(c.name)}</option>`).join("");
+  $("#camp-subtitle").textContent = cur().subtitle || "";
+  $("#camp-del").disabled = state.campaigns.length <= 1;
+}
 
 document.addEventListener("change", e => {
   const id = e.target.id;
-  if (id === "f-mech") { state.ui.filterMech = e.target.value; save(); renderFilterRow(); renderGrid(); }
-  if (id === "f-stat") { state.ui.filterStatus = e.target.value; save(); renderFilterRow(); renderGrid(); }
-  if (id === "tlf-dom") { state.ui.tl.domain = e.target.value; state.ui.tl.tp = ""; save(); renderTlFilters(); renderTimeline(); }
-  if (id === "tlf-tp") { state.ui.tl.tp = e.target.value; save(); renderTimeline(); }
-  if (id === "tlf-mech") { state.ui.tl.mech = e.target.value; save(); renderTlFilters(); renderTimeline(); }
-  if (id === "tlf-stat") { state.ui.tl.status = e.target.value; save(); renderTlFilters(); renderTimeline(); }
+  if (id === "camp-select") { state.activeCampaignId = e.target.value; save(); render(); switchView("matrix"); return; }
+  if (id === "f-mech") { cur().ui.filterMech = e.target.value; save(); renderFilterRow(); renderGrid(); }
+  if (id === "f-stat") { cur().ui.filterStatus = e.target.value; save(); renderFilterRow(); renderGrid(); }
+  if (id === "tlf-dom") { cur().ui.tl.domain = e.target.value; cur().ui.tl.tp = ""; save(); renderTlFilters(); renderTimeline(); }
+  if (id === "tlf-tp") { cur().ui.tl.tp = e.target.value; save(); renderTimeline(); }
+  if (id === "tlf-mech") { cur().ui.tl.mech = e.target.value; save(); renderTlFilters(); renderTimeline(); }
+  if (id === "tlf-stat") { cur().ui.tl.status = e.target.value; save(); renderTlFilters(); renderTimeline(); }
   if (id === "file-input") {
     const f = e.target.files[0]; if (!f) return; const rd = new FileReader();
-    rd.onload = () => { try { state = JSON.parse(rd.result); if (!state.ui.tl) state.ui.tl = { domain: "", tp: "", mech: "", status: "" }; save(); render(); toast("Importiert."); } catch { toast("Import fehlgeschlagen – ungültige Datei."); } };
+    rd.onload = () => { try { importData(JSON.parse(rd.result)); } catch { toast("Import fehlgeschlagen – ungültige Datei."); } };
     rd.readAsText(f); e.target.value = "";
   }
 });

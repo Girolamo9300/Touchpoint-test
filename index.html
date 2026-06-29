@@ -274,6 +274,7 @@
   <div id="view-matrix">
     <div class="metric-grid" id="metrics"></div>
     <div class="row" id="domain-row"></div>
+    <div class="row" id="axis-row"></div>
     <div class="row" id="filter-row"></div>
     <div class="grid-scroll"><div class="grid" id="grid"></div></div>
   </div>
@@ -438,6 +439,8 @@ function migrateCampaign(c) {
   c.actions = Array.isArray(c.actions) ? c.actions : []; c.articles = Array.isArray(c.articles) ? c.articles : [];
   if (!c.ui) c.ui = { domain: c.domains[0]?.id || "shop", filterMech: "", filterStatus: "" };
   if (!c.ui.tl) c.ui.tl = { domain: "", tp: "", mech: "", status: "" };
+  if (!c.ui.matrixRow) c.ui.matrixRow = "segment";
+  if (!c.ui.matrixCol) c.ui.matrixCol = "touchpoint";
   c.ideas.forEach(i => { if (!Array.isArray(i.mechs)) i.mechs = []; if (i.timing === undefined) i.timing = null; });
   return c;
 }
@@ -552,25 +555,56 @@ function ideaMini(i) {
     <div class="ititle">${esc(i.title)}</div>
     <div class="imeta">${dots}${stars}${kw}<span class="stat stat-${i.status}">${i.status}</span></div></div>`;
 }
+// ---- variable Achsen ----
+const DIMS = { segment: "Segment", touchpoint: "Touchpoint", action: "Aktion", article: "Artikel" };
+function axisValues(dim) {
+  if (dim === "segment") return cur().segments.map(s => ({ key: s.id, label: s.name, kind: "segment", color: s.color, meta: s.meta }));
+  if (dim === "touchpoint") return domain(cur().ui.domain).touchpoints.map(t => ({ key: t.id, label: t.name, kind: "touchpoint" }));
+  // action / article: bekannte Werte + Sammelwert ""
+  return [...allVals(dim).map(v => ({ key: v, label: v, kind: dim })),
+    { key: "", label: dim === "action" ? "(ohne Aktion)" : "(ohne Artikel)", kind: dim }];
+}
+function axisMatch(i, dim, key) {
+  if (dim === "segment") return i.segId === key;
+  if (dim === "touchpoint") return i.tpId === key;
+  return (i[dim] || "").trim() === key;
+}
+function axisHeadCell(v) {
+  if (v.kind === "segment") return `<div class="gcell gseg" data-segedit="${v.key}"><div class="seg-name"><span class="seg-dot" style="background:${v.color}"></span>${esc(v.label)}</div>${v.meta ? `<div class="seg-meta">${esc(v.meta)}</div>` : ""}</div>`;
+  if (v.kind === "touchpoint") return `<div class="gcell ghead">${esc(v.label)}<span class="tp-edit" data-tpedit="${v.key}">✎</span></div>`;
+  return `<div class="gcell ghead">${esc(v.label)}</div>`;
+}
 function renderGrid() {
-  const dom = cur().ui.domain, tps = domain(dom).touchpoints, grid = $("#grid");
-  grid.style.gridTemplateColumns = `220px repeat(${tps.length}, minmax(190px, 1fr)) 132px`;
-  let html = `<div class="gcorner">Segment ╲ Touchpoint</div>`;
-  tps.forEach(t => { html += `<div class="gcell ghead">${esc(t.name)}<span class="tp-edit" data-tpedit="${t.id}">✎</span></div>`; });
-  html += `<div class="gcell ghead" style="background:var(--surface)"><span class="chip chip-add" id="add-tp" style="padding:3px 9px">+ Touchpoint</span></div>`;
-  cur().segments.forEach(s => {
-    html += `<div class="gcell gseg" data-segedit="${s.id}"><div class="seg-name"><span class="seg-dot" style="background:${s.color}"></span>${esc(s.name)}</div>${s.meta ? `<div class="seg-meta">${esc(s.meta)}</div>` : ""}</div>`;
-    tps.forEach(t => {
-      const list = cellIdeas(dom, t.id, s.id), shown = list.filter(matchMatrix);
-      const dim = (cur().ui.filterMech || cur().ui.filterStatus) && shown.length === 0 && list.length > 0;
-      html += `<div class="gcell gbody ${dim ? "dim" : ""}" data-cell="${t.id}::${s.id}">
-        ${list.length ? `<span class="cell-count">${shown.length < list.length ? shown.length + "/" : ""}${list.length}</span>` : ""}
+  const rowDim = cur().ui.matrixRow || "segment", colDim = cur().ui.matrixCol || "touchpoint", grid = $("#grid");
+  const rowVals = axisValues(rowDim), colVals = axisValues(colDim);
+  const tpCol = colDim === "touchpoint"; // „+ Touchpoint"-Spalte nur dann
+  grid.style.gridTemplateColumns = `220px repeat(${colVals.length}, minmax(190px, 1fr))${tpCol ? " 132px" : ""}`;
+  let html = `<div class="gcorner">${esc(DIMS[rowDim])} ╲ ${esc(DIMS[colDim])}</div>`;
+  colVals.forEach(cv => { html += axisHeadCell(cv); });
+  if (tpCol) html += `<div class="gcell ghead" style="background:var(--surface)"><span class="chip chip-add" id="add-tp" style="padding:3px 9px">+ Touchpoint</span></div>`;
+  rowVals.forEach(rv => {
+    // Zeilenkopf: Segment-Kopf wie gehabt, sonst schlichtes Label
+    if (rv.kind === "segment") html += axisHeadCell(rv);
+    else html += `<div class="gcell gseg"><div class="seg-name">${esc(rv.label)}</div></div>`;
+    colVals.forEach(cv => {
+      const base = cur().ideas.filter(i => i.domainId === cur().ui.domain && axisMatch(i, rowDim, rv.key) && axisMatch(i, colDim, cv.key));
+      const shown = base.filter(matchMatrix);
+      const dim = (cur().ui.filterMech || cur().ui.filterStatus) && shown.length === 0 && base.length > 0;
+      html += `<div class="gcell gbody ${dim ? "dim" : ""}" data-cell="${encodeURIComponent(rv.key)}::${encodeURIComponent(cv.key)}">
+        ${base.length ? `<span class="cell-count">${shown.length < base.length ? shown.length + "/" : ""}${base.length}</span>` : ""}
         ${shown.map(ideaMini).join("")}
-        <span class="cell-add">${list.length ? "+ Idee" : "+ Idee hinzufügen"}</span></div>`;
+        <span class="cell-add">${base.length ? "+ Idee" : "+ Idee hinzufügen"}</span></div>`;
     });
-    html += `<div class="gcell"></div>`;
+    if (tpCol) html += `<div class="gcell"></div>`;
   });
   grid.innerHTML = html;
+}
+function renderAxisRow() {
+  const opt = (sel, exclude) => Object.keys(DIMS).map(d => `<option value="${d}" ${sel === d ? "selected" : ""} ${d === exclude && d !== sel ? "disabled" : ""}>${DIMS[d]}</option>`).join("");
+  const r = cur().ui.matrixRow || "segment", c = cur().ui.matrixCol || "touchpoint";
+  $("#axis-row").innerHTML = `<span class="row-label">Achsen</span>
+    <span class="kw-lbl">Zeilen</span><select class="select" id="ax-row">${opt(r, c)}</select>
+    <span class="kw-lbl">Spalten</span><select class="select" id="ax-col">${opt(c, r)}</select>`;
 }
 
 /* ---------- timeline ---------- */
@@ -704,12 +738,28 @@ function renderTimeline() {
 /* ---------- drawer ---------- */
 let drawerCell = null;
 let drawerEditing = null; // null = Liste | ideaId | "new"
-function openCell(tpId, segId, dom) {
-  drawerCell = { tpId, segId, dom: dom || cur().ui.domain };
-  drawerEditing = cellIdeas(drawerCell.dom, tpId, segId).length ? null : "new";
+// Ideen passend zu einem (teilweise gepinnten) Kontext
+function cellIdeasCtx(ctx) {
+  return cur().ideas.filter(i =>
+    i.domainId === ctx.dom &&
+    (ctx.segId == null || i.segId === ctx.segId) &&
+    (ctx.tpId == null || i.tpId === ctx.tpId) &&
+    (ctx.action == null || (i.action || "").trim() === ctx.action) &&
+    (ctx.article == null || (i.article || "").trim() === ctx.article));
+}
+function ctxFromAxes(rowKey, colKey) {
+  const ctx = { dom: cur().ui.domain };
+  const set = (dim, key) => { if (dim === "segment") ctx.segId = key; else if (dim === "touchpoint") ctx.tpId = key; else ctx[dim] = key; };
+  set(cur().ui.matrixRow || "segment", rowKey); set(cur().ui.matrixCol || "touchpoint", colKey);
+  return ctx;
+}
+function openDrawerCtx(ctx) {
+  drawerCell = ctx;
+  drawerEditing = cellIdeasCtx(ctx).length ? null : "new";
   renderDrawer();
   $("#scrim").classList.add("open"); $("#drawer").classList.add("open");
 }
+function openCell(tpId, segId, dom) { openDrawerCtx({ dom: dom || cur().ui.domain, tpId, segId }); }
 function closeDrawer() { $("#scrim").classList.remove("open"); $("#drawer").classList.remove("open"); drawerCell = null; drawerEditing = null; }
 function cardSummary(i) {
   const dots = i.mechs.slice(0, 6).map(mid => { const m = mech(mid); return m ? `<span class="mdot" style="background:${CATS[m.cat].color}" title="${esc(m.name)}"></span>` : ""; }).join("");
@@ -721,23 +771,36 @@ function cardSummary(i) {
     ${i.desc ? `<div class="csum-desc">${esc(i.desc)}</div>` : ""}
     <div class="imeta">${dots}${stars}${kw}<span class="stat stat-${i.status}">${i.status}</span><span class="csum-edit">Bearbeiten</span></div></div>`;
 }
+function ctxLabels(ctx) {
+  const parts = [domain(ctx.dom).name];
+  if (ctx.tpId != null) parts.push(tp(ctx.dom, ctx.tpId)?.name || "?");
+  if (ctx.action != null) parts.push(ctx.action ? "Aktion: " + ctx.action : "(ohne Aktion)");
+  if (ctx.article != null) parts.push(ctx.article ? "Artikel: " + ctx.article : "(ohne Artikel)");
+  let title;
+  if (ctx.segId != null) { const s = seg(ctx.segId); title = `<span class="seg-dot" style="background:${s?.color || "var(--border)"}"></span>${esc(s?.name || "?")}`; }
+  else if (ctx.tpId != null) title = esc(tp(ctx.dom, ctx.tpId)?.name || "?");
+  else if (ctx.action != null) title = esc(ctx.action || "(ohne Aktion)");
+  else if (ctx.article != null) title = esc(ctx.article || "(ohne Artikel)");
+  else title = esc(domain(ctx.dom).name);
+  return { ctxText: parts.join(" · "), titleHtml: title };
+}
 function renderDrawer() {
   if (!drawerCell) return;
-  const { dom, tpId, segId } = drawerCell, s = seg(segId);
-  $("#drawer-ctx").textContent = `${domain(dom).name} · ${tp(dom, tpId).name}`;
-  $("#drawer-title").innerHTML = `<span class="seg-dot" style="background:${s.color}"></span>${esc(s.name)}`;
-  const list = cellIdeas(dom, tpId, segId);
+  const ctx = drawerCell, lab = ctxLabels(ctx);
+  $("#drawer-ctx").textContent = lab.ctxText;
+  $("#drawer-title").innerHTML = lab.titleHtml;
+  const list = cellIdeasCtx(ctx);
   let html = `<div class="drawer-bar"><span class="d-count">${list.length} Karte${list.length === 1 ? "" : "n"}</span>` +
     (drawerEditing === "new" ? "" : `<button class="btn btn-primary" data-addcard="1">+ Neue Karte</button>`) + `</div>`;
   if (drawerEditing === "new") {
-    html += `<div class="editor"><div class="ed-head">Neue Karte</div>${editorFields(null)}
+    html += `<div class="editor"><div class="ed-head">Neue Karte</div>${editorFields(null, ctx)}
       <div class="ed-actions"><span><button class="link-cancel" data-cancel="1">Abbrechen</button></span>
       <button class="btn btn-primary" data-save="new">Karte speichern</button></div></div>`;
   }
-  if (!list.length && drawerEditing !== "new") html += `<div class="empty">Noch keine Karten an diesem Touchpoint für dieses Segment.<br>Leg die erste an.</div>`;
+  if (!list.length && drawerEditing !== "new") html += `<div class="empty">Noch keine Karten hier.<br>Leg die erste an.</div>`;
   list.forEach(i => {
     if (drawerEditing === i.id) {
-      html += `<div class="editor"><div class="ed-head">Karte bearbeiten</div>${editorFields(i)}
+      html += `<div class="editor"><div class="ed-head">Karte bearbeiten</div>${editorFields(i, ctx)}
         <div class="ed-actions"><button class="link-del" data-del="${i.id}">Löschen</button>
         <span><button class="link-cancel" data-cancel="1">Abbrechen</button>
         <button class="btn btn-primary" data-save="${i.id}">Speichern</button></span></div></div>`;
@@ -745,10 +808,22 @@ function renderDrawer() {
   });
   $("#drawer-body").innerHTML = html;
 }
-function editorFields(i) {
+function editorFields(i, ctx) {
+  ctx = ctx || {};
   const mechs = i ? i.mechs : [], prio = i ? i.prio : 0, status = i ? i.status : "idee", t = i ? i.timing : null;
   const yOpts = sel => [2026, 2027].map(y => `<option value="${y}" ${sel === y ? "selected" : ""}>${y}</option>`).join("");
+  const actVal = i ? (i.action || "") : (ctx.action != null ? ctx.action : "");
+  const artVal = i ? (i.article || "") : (ctx.article != null ? ctx.article : "");
+  // Pflichtfelder, die nicht über eine Achse gepinnt sind, beim Neuanlegen abfragen
+  const needSeg = !i && ctx.segId == null;
+  const needTp = !i && ctx.tpId == null;
+  const locFields = (needSeg || needTp) ? `
+    <div class="aa-row">
+      ${needSeg ? `<div class="aa-col"><label class="fl">Segment</label><select class="select f-seg" style="width:100%">${cur().segments.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select></div>` : ""}
+      ${needTp ? `<div class="aa-col"><label class="fl">Touchpoint</label><select class="select f-tp" style="width:100%">${domain(ctx.dom).touchpoints.map(tt => `<option value="${tt.id}">${esc(tt.name)}</option>`).join("")}</select></div>` : ""}
+    </div>` : "";
   return `
+    ${locFields}
     <label class="fl">Titel</label>
     <input class="tf f-title" placeholder="Worin besteht die Störung / der Eingriff?" value="${i ? esc(i.title) : ""}">
     <label class="fl">Beschreibung</label>
@@ -758,11 +833,11 @@ function editorFields(i) {
     <div class="aa-row">
       <div class="aa-col">
         <label class="fl">Aktion (optional)</label>
-        <input class="tf f-action" list="dl-actions" placeholder="z. B. Herbst-Sampling Sorte X" value="${i ? esc(i.action || "") : ""}">
+        <input class="tf f-action" list="dl-actions" placeholder="z. B. Herbst-Sampling Sorte X" value="${esc(actVal)}">
       </div>
       <div class="aa-col">
         <label class="fl">Artikel (optional)</label>
-        <input class="tf f-article" list="dl-articles" placeholder="z. B. konkreter Artikel / SKU" value="${i ? esc(i.article || "") : ""}">
+        <input class="tf f-article" list="dl-articles" placeholder="z. B. konkreter Artikel / SKU" value="${esc(artVal)}">
       </div>
     </div>
     <datalist id="dl-actions">${allVals("action").map(v => `<option value="${esc(v)}"></option>`).join("")}</datalist>
@@ -789,12 +864,15 @@ function readEditor(el) {
     let tw = parseInt($(".f-tw", el).value, 10); if (!(tw >= 1)) { tw = fw; }
     timing = { fy, fw, ty: ty || fy, tw };
   }
+  const segSel = $(".f-seg", el), tpSel = $(".f-tp", el);
   return {
     title: $(".f-title", el).value.trim(),
     desc: $(".f-desc", el).value.trim(),
     mechs: $$(".mech-chip.on", el).map(c => c.dataset.mech),
     action: $(".f-action", el).value.trim(),
     article: $(".f-article", el).value.trim(),
+    ...(segSel ? { segId: segSel.value } : {}),
+    ...(tpSel ? { tpId: tpSel.value } : {}),
     prio: +($(".opt.on[data-prio]", el)?.dataset.prio || 0),
     status: $(".opt.on[data-status]", el)?.dataset.status || "idee",
     timing
@@ -1081,7 +1159,7 @@ function switchView(v) {
 }
 function render() {
   renderCampaignBar();
-  renderMetrics(); renderDomainRow(); renderFilterRow(); renderGrid();
+  renderMetrics(); renderDomainRow(); renderAxisRow(); renderFilterRow(); renderGrid();
   renderTlFilters(); renderTimeline(); renderGlossary(); renderSummary();
   if (!storageOK && !$("#sw")) $(".footer").insertAdjacentHTML("beforeend", ` <b id="sw" style="color:var(--amber)">· Speicher nicht verfügbar – bitte exportieren.</b>`);
 }
@@ -1107,7 +1185,7 @@ document.addEventListener("click", e => {
     if (n && n.trim()) { s.name = n.trim(); save(); render(); } return;
   }
   const cell = t.closest(".gbody");
-  if (cell && !t.closest(".idea")) { const [tpId, segId] = cell.dataset.cell.split("::"); openCell(tpId, segId); return; }
+  if (cell && !t.closest(".idea")) { const [rk, ck] = cell.dataset.cell.split("::").map(decodeURIComponent); openDrawerCtx(ctxFromAxes(rk, ck)); return; }
   const ideaEl = t.closest(".idea");
   if (ideaEl) { const i = cur().ideas.find(x => x.id === ideaEl.dataset.idea); if (i) { openCell(i.tpId, i.segId); drawerEditing = i.id; renderDrawer(); } return; }
 
@@ -1134,8 +1212,14 @@ document.addEventListener("click", e => {
       const data = readEditor(ed);
       if (!data.title) { toast("Bitte einen Titel eingeben."); return; }
       const ts = nowTs();
-      if (t.dataset.save === "new") { cur().ideas.push({ id: uid(), domainId: drawerCell.dom, tpId: drawerCell.tpId, segId: drawerCell.segId, ...data, createdAt: ts, updatedAt: ts }); toast("Karte hinzugefügt."); }
-      else { const idea = cur().ideas.find(x => x.id === t.dataset.save); Object.assign(idea, data, { updatedAt: ts }); if (!idea.createdAt) idea.createdAt = ts; toast("Gespeichert."); }
+      if (t.dataset.save === "new") {
+        const segId = drawerCell.segId != null ? drawerCell.segId : data.segId;
+        const tpId = drawerCell.tpId != null ? drawerCell.tpId : data.tpId;
+        if (!segId || !tpId) { toast("Bitte Segment und Touchpoint wählen."); return; }
+        const { segId: _s, tpId: _t, ...rest } = data;
+        cur().ideas.push({ id: uid(), domainId: drawerCell.dom, segId, tpId, ...rest, createdAt: ts, updatedAt: ts }); toast("Karte hinzugefügt.");
+      }
+      else { const idea = cur().ideas.find(x => x.id === t.dataset.save); const { segId: _s, tpId: _t, ...rest } = data; Object.assign(idea, rest, { updatedAt: ts }); if (!idea.createdAt) idea.createdAt = ts; toast("Gespeichert."); }
       drawerEditing = null; save(); renderDrawer(); render(); return;
     }
   }
@@ -1241,6 +1325,8 @@ document.addEventListener("change", e => {
   const id = e.target.id;
   if (id === "camp-select") { state.activeCampaignId = e.target.value; save(); render(); switchView("matrix"); return; }
   if (id === "sum-seg") { cur().ui.sumSeg = e.target.value || ""; save(); renderSummary(); return; }
+  if (id === "ax-row") { const v = e.target.value; if (v === cur().ui.matrixCol) cur().ui.matrixCol = cur().ui.matrixRow; cur().ui.matrixRow = v; save(); renderAxisRow(); renderGrid(); return; }
+  if (id === "ax-col") { const v = e.target.value; if (v === cur().ui.matrixRow) cur().ui.matrixRow = cur().ui.matrixCol; cur().ui.matrixCol = v; save(); renderAxisRow(); renderGrid(); return; }
   if (id === "gloss-dim") { cur().ui.glossDim = e.target.value || "mech"; save(); renderGlossary(); return; }
   if (id === "sum-action") { cur().ui.sumAction = e.target.value || ""; save(); renderSummary(); return; }
   if (id === "sum-article") { cur().ui.sumArticle = e.target.value || ""; save(); renderSummary(); return; }

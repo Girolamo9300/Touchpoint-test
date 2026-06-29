@@ -203,6 +203,7 @@
     color: #fff; font-size: 12.5px; padding: 8px 16px; border-radius: 8px; opacity: 0; pointer-events: none; transition: all .2s; z-index: 60; }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   .footer { margin-top: 2.5rem; font-size: 11px; color: var(--faint); border-top: 0.5px solid var(--border); padding-top: 1rem; }
+  .footer:empty { display: none; }
 
   @media (max-width: 640px) { .metric-grid { grid-template-columns: 1fr 1fr; } .wrap { padding: 1.25rem 1rem 3rem; } }
   @media print {
@@ -222,7 +223,6 @@
         <button class="btn camp-act" id="camp-rename">Umbenennen</button>
         <button class="btn camp-act" id="camp-del">Löschen</button>
       </div>
-      <p class="subtitle" id="camp-subtitle"></p>
     </div>
     <div class="toolbar">
       <button class="btn" id="btn-import">Import</button>
@@ -266,10 +266,7 @@
     <div class="gloss-grid" id="gloss-grid"></div>
   </div>
 
-  <div class="footer">
-    Persönliches Arbeitstool · Daten werden lokal in deinem Browserprofil gespeichert (kein Mehrnutzer-Live-Editing).
-    <span class="noprint">Sicherung über „Export".</span>
-  </div>
+  <div class="footer" id="footer"></div>
 </div>
 
 <div class="scrim" id="scrim"></div>
@@ -942,7 +939,6 @@ function newCampaign() {
 function renameCampaign() {
   const c = cur(); const n = prompt("Kampagne umbenennen:", c.name); if (n === null) return;
   if (n.trim()) c.name = n.trim();
-  const s = prompt("Untertitel (optional):", c.subtitle || ""); if (s !== null) c.subtitle = s.trim();
   save(); renderCampaignBar();
 }
 function deleteCampaign() {
@@ -955,7 +951,6 @@ function deleteCampaign() {
 }
 function renderCampaignBar() {
   $("#camp-select").innerHTML = state.campaigns.map(c => `<option value="${c.id}" ${c.id === state.activeCampaignId ? "selected" : ""}>${esc(c.name)}</option>`).join("");
-  $("#camp-subtitle").textContent = cur().subtitle || "";
   $("#camp-del").disabled = state.campaigns.length <= 1;
 }
 

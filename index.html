@@ -288,7 +288,9 @@
     <div class="row" style="margin-top:1.5rem; justify-content:space-between">
       <span class="row-label" id="sum-totals"></span>
       <span style="display:flex; gap:8px; align-items:center">
-        <span class="chip" id="sum-recent-toggle">Nur kürzlich geänderte</span>
+        <span class="row-label" style="margin-right:0">Änderungen ab</span>
+        <input type="date" class="select" id="sum-since" style="font-size:12px">
+        <span class="chip" id="sum-since-clear" hidden>Zurücksetzen <span class="x">✕</span></span>
         <button class="btn" id="btn-copy-summary">Als Text kopieren</button>
       </span>
     </div>
@@ -823,29 +825,36 @@ function renderGlossary() {
 }
 
 /* ---------- summary (Matrix in Textform) ---------- */
-const RECENT_MS = 7 * DAY; // "kürzlich" = letzte 7 Tage
+const RECENT_MS = 7 * DAY; // Default-Fenster für Badges, wenn kein Stichtag gesetzt ist
 const nowTs = () => Date.now();
 function fmtTs(ts) { if (!ts) return ""; const d = new Date(ts), p = x => String(x).padStart(2, "0");
   return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}, ${p(d.getHours())}:${p(d.getMinutes())}`; }
-function changeKind(i) { const n = Date.now();
-  if (i.createdAt && n - i.createdAt < RECENT_MS) return "neu";
-  if (i.updatedAt && n - i.updatedAt < RECENT_MS) return "geändert";
+function fmtDate(s) { if (!s) return ""; const d = new Date(s + "T00:00:00"), p = x => String(x).padStart(2, "0");
+  return isNaN(d) ? s : `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}`; }
+// Stichtag (00:00 lokal) als ms, oder null wenn keiner gesetzt
+function cutoffMs() { const s = cur().ui.sumSince; if (!s) return null; const d = new Date(s + "T00:00:00"); return isNaN(d) ? null : d.getTime(); }
+// Schwelle für die neu/geändert-Badges: Stichtag, sonst letzte 7 Tage
+function badgeThreshold() { const c = cutoffMs(); return c != null ? c : Date.now() - RECENT_MS; }
+function changeKind(i) { const thr = badgeThreshold();
+  if (i.createdAt && i.createdAt >= thr) return "neu";
+  if (i.updatedAt && i.updatedAt >= thr) return "geändert";
   return null; }
 function changeBadge(i) { const k = changeKind(i); return k ? `<span class="stat tag-${k === "neu" ? "new" : "changed"}">${k}</span>` : ""; }
 
 function renderSummary() {
-  const c = cur(), all = c.ideas, recentOnly = !!c.ui.sumRecentOnly;
-  const visible = recentOnly ? all.filter(changeKind) : all;
-  const tgl = $("#sum-recent-toggle"); if (tgl) tgl.classList.toggle("active", recentOnly);
+  const c = cur(), all = c.ideas, cut = cutoffMs(), since = c.ui.sumSince || "";
+  const visible = cut != null ? all.filter(i => (i.updatedAt || i.createdAt || 0) >= cut) : all;
+  const sinceEl = $("#sum-since"); if (sinceEl && sinceEl.value !== since) sinceEl.value = since;
+  const clearEl = $("#sum-since-clear"); if (clearEl) clearEl.hidden = !since;
   $("#sum-totals").textContent =
     `${all.length} Idee${all.length === 1 ? "" : "n"} · ${all.filter(i => i.status === "geplant").length} geplant · ${all.filter(i => i.status === "live").length} live · ${all.filter(i => i.timing).length} mit Timing` +
-    (recentOnly ? ` · ${visible.length} kürzlich geändert` : "");
+    (cut != null ? ` · ${visible.length} ab ${fmtDate(since)}` : "");
   if (!all.length) { $("#summary-body").innerHTML = `<div class="empty">Noch keine Ideen in dieser Kampagne.</div>`; return; }
-  if (recentOnly && !visible.length) { $("#summary-body").innerHTML = `<div class="empty">Keine in den letzten 7 Tagen neu angelegten oder geänderten Ideen.</div>`; return; }
+  if (cut != null && !visible.length) { $("#summary-body").innerHTML = `<div class="empty">Keine Änderungen ab ${fmtDate(since)}.</div>`; return; }
   let html = "";
   c.segments.forEach(s => {
     const segIdeas = visible.filter(i => i.segId === s.id);
-    if (recentOnly && !segIdeas.length) return;
+    if (cut != null && !segIdeas.length) return;
     html += `<div class="sum-seg"><div class="sum-seg-h"><span class="seg-dot" style="background:${s.color}"></span>${esc(s.name)}` +
       `<span style="color:var(--faint);font-weight:400;font-size:12px">· ${segIdeas.length} Idee${segIdeas.length === 1 ? "" : "n"}${s.meta ? " · " + esc(s.meta) : ""}</span></div>`;
     if (!segIdeas.length) { html += `<div class="sum-idea" style="color:var(--faint)">— keine Ideen</div></div>`; return; }
@@ -869,13 +878,13 @@ function renderSummary() {
   $("#summary-body").innerHTML = html;
 }
 function summaryText() {
-  const c = cur(), all = c.ideas, recentOnly = !!c.ui.sumRecentOnly;
-  const visible = recentOnly ? all.filter(changeKind) : all;
+  const c = cur(), all = c.ideas, cut = cutoffMs(), since = c.ui.sumSince || "";
+  const visible = cut != null ? all.filter(i => (i.updatedAt || i.createdAt || 0) >= cut) : all;
   let out = `${c.name}\n${all.length} Ideen · ${all.filter(i => i.status === "geplant").length} geplant · ${all.filter(i => i.status === "live").length} live · ${all.filter(i => i.timing).length} mit Timing` +
-    (recentOnly ? ` · nur kürzlich geänderte (${visible.length})` : "") + `\n`;
+    (cut != null ? ` · Änderungen ab ${fmtDate(since)} (${visible.length})` : "") + `\n`;
   c.segments.forEach(s => {
     const segIdeas = visible.filter(i => i.segId === s.id);
-    if (recentOnly && !segIdeas.length) return;
+    if (cut != null && !segIdeas.length) return;
     out += `\n## ${s.name} (${segIdeas.length})${s.meta ? " — " + s.meta : ""}\n`;
     if (!segIdeas.length) { out += `  — keine Ideen\n`; return; }
     c.domains.forEach(d => d.touchpoints.forEach(t => {
@@ -1018,7 +1027,7 @@ document.addEventListener("click", e => {
   if (t.id === "btn-import") { $("#file-input").click(); return; }
   if (t.id === "btn-print") { window.print(); return; }
   if (t.id === "btn-copy-summary") { copyText(summaryText()); return; }
-  if (t.id === "sum-recent-toggle") { cur().ui.sumRecentOnly = !cur().ui.sumRecentOnly; save(); renderSummary(); return; }
+  if (t.closest("#sum-since-clear")) { cur().ui.sumSince = ""; save(); renderSummary(); return; }
   if (t.id === "camp-new") { newCampaign(); return; }
   if (t.id === "camp-rename") { renameCampaign(); return; }
   if (t.id === "camp-del") { deleteCampaign(); return; }
@@ -1073,6 +1082,7 @@ function renderCampaignBar() {
 document.addEventListener("change", e => {
   const id = e.target.id;
   if (id === "camp-select") { state.activeCampaignId = e.target.value; save(); render(); switchView("matrix"); return; }
+  if (id === "sum-since") { cur().ui.sumSince = e.target.value || ""; save(); renderSummary(); return; }
   if (id === "f-mech") { cur().ui.filterMech = e.target.value; save(); renderFilterRow(); renderGrid(); }
   if (id === "f-stat") { cur().ui.filterStatus = e.target.value; save(); renderFilterRow(); renderGrid(); }
   if (id === "tlf-dom") { cur().ui.tl.domain = e.target.value; cur().ui.tl.tp = ""; save(); renderTlFilters(); renderTimeline(); }

@@ -683,6 +683,48 @@ function readEditor(el) {
 }
 
 /* ---------- glossary ---------- */
+let drawerMech = null; // null = closed | mechId | "new"
+function openMechDrawer(mechId) {
+  drawerCell = null; drawerEditing = null;
+  drawerMech = mechId;
+  renderMechDrawer();
+  $("#scrim").classList.add("open"); $("#drawer").classList.add("open");
+}
+function renderMechDrawer() {
+  if (!drawerMech) return;
+  const isNew = drawerMech === "new";
+  const m = isNew ? null : mech(drawerMech);
+  $("#drawer-ctx").textContent = "Mechanismus-Glossar";
+  $("#drawer-title").innerHTML = isNew ? "Neuer Mechanismus" : `<span class="mdot" style="width:9px;height:9px;background:${CATS[m.cat].color}"></span>${esc(m.name)}`;
+  const catKeys = Object.keys(CATS);
+  const curCat = m ? m.cat : "incentive";
+  let html = `<div class="editor">
+    <div class="ed-head">${isNew ? "Neuen Mechanismus anlegen" : "Mechanismus bearbeiten"}</div>
+    <label class="fl">Name</label>
+    <input class="tf f-mname" placeholder="Name des Mechanismus" value="${m ? esc(m.name) : ""}">
+    <label class="fl">Kategorie</label>
+    <div class="mech-cat-pick" style="display:flex;flex-wrap:wrap;gap:5px">
+      ${catKeys.map(k => `<span class="opt ${curCat === k ? "on" : ""}" data-mcat="${k}" style="display:flex;align-items:center;gap:5px">
+        <span class="mdot" style="background:${CATS[k].color}"></span>${CATS[k].label}</span>`).join("")}
+    </div>
+    <label class="fl">Beschreibung</label>
+    <textarea class="tf f-mdesc" rows="4" placeholder="Wofür steht dieser Mechanismus?">${m ? esc(m.desc) : ""}</textarea>
+    <div class="ed-actions">
+      ${isNew ? "" : `<button class="link-del" data-mdel="${m.id}">Löschen</button>`}
+      <span><button class="link-cancel" data-mcancel="1">Abbrechen</button>
+      <button class="btn btn-primary" data-msave="${isNew ? "new" : m.id}">Speichern</button></span>
+    </div>
+  </div>`;
+  if (!isNew) {
+    const uses = state.ideas.filter(i => i.mechs.includes(m.id));
+    html += `<div style="margin-top:1rem"><div class="uses-h">Einsatzorte · ${uses.length}</div>
+      ${uses.length ? uses.map(i => { const s = seg(i.segId);
+        return `<div class="use-item" data-jump="${i.domainId}::${i.tpId}::${i.segId}"><span class="use-seg" style="background:${s.color}"></span>${esc(s.name)} <span style="color:var(--faint)">@</span> ${esc(tp(i.domainId, i.tpId)?.name || "?")} <span style="color:var(--faint)">· ${domain(i.domainId).name}</span></div>`;
+      }).join("") : `<div class="empty" style="padding:.6rem 0;text-align:left">Noch nirgends eingeplant.</div>`}
+    </div>`;
+  }
+  $("#drawer-body").innerHTML = html;
+}
 function renderGlossary() {
   $("#gloss-grid").innerHTML = state.mechanisms.map(m => {
     const uses = state.ideas.filter(i => i.mechs.includes(m.id)), cat = CATS[m.cat];
@@ -695,7 +737,10 @@ function renderGlossary() {
           return `<div class="use-item" data-jump="${i.domainId}::${i.tpId}::${i.segId}"><span class="use-seg" style="background:${s.color}"></span>${esc(s.name)} <span style="color:var(--faint)">@</span> ${esc(tp(i.domainId, i.tpId)?.name || "?")} <span style="color:var(--faint)">· ${domain(i.domainId).name}</span></div>`;
         }).join("") : `<div class="empty" style="padding:.6rem 0;text-align:left">Noch nirgends eingeplant.</div>`}
       </div>
-      <span class="medit" data-medit="${m.id}">Bearbeiten</span></div>`;
+      <div style="display:flex;gap:12px;margin-top:10px">
+        <span class="medit" data-medit="${m.id}">Bearbeiten</span>
+        <span class="medit" data-mdel-card="${m.id}" style="color:var(--red)">Löschen</span>
+      </div></div>`;
   }).join("");
 }
 
@@ -742,7 +787,7 @@ document.addEventListener("click", e => {
 
   if (t.closest("#f-clear")) { state.ui.filterMech = ""; state.ui.filterStatus = ""; save(); renderFilterRow(); renderGrid(); return; }
   if (t.closest("#tlf-clear")) { state.ui.tl = { domain: "", tp: "", mech: "", status: "" }; save(); renderTlFilters(); renderTimeline(); return; }
-  if (t.id === "scrim" || t.id === "drawer-close") { closeDrawer(); return; }
+  if (t.id === "scrim" || t.id === "drawer-close") { closeDrawer(); drawerMech = null; return; }
 
   if (t.dataset.addcard) { drawerEditing = "new"; renderDrawer(); return; }
   if (t.dataset.cancel) { drawerEditing = null; renderDrawer(); return; }
@@ -766,16 +811,41 @@ document.addEventListener("click", e => {
 
   const jump = t.closest("[data-jump]");
   if (jump) { const [dom, tpId, segId] = jump.dataset.jump.split("::"); switchView("matrix"); state.ui.domain = dom; renderDomainRow(); renderGrid(); openCell(tpId, segId, dom); return; }
-  if (t.dataset.medit) {
-    const m = mech(t.dataset.medit); const n = prompt("Mechanismus-Name (leer = löschen):", m.name); if (n === null) return;
-    if (n.trim() === "") { if (confirm(`„${m.name}\" löschen? Verweise in Karten werden entfernt.`)) { state.mechanisms = state.mechanisms.filter(x => x.id !== m.id); state.ideas.forEach(i => i.mechs = i.mechs.filter(x => x !== m.id)); save(); render(); } return; }
-    m.name = n.trim(); const d = prompt("Beschreibung:", m.desc); if (d !== null) m.desc = d.trim(); save(); render(); return;
+  if (t.dataset.medit) { openMechDrawer(t.dataset.medit); return; }
+  if (t.dataset.mdelCard) {
+    if (confirm(`„${mech(t.dataset.mdelCard)?.name}" löschen? Verweise in Karten werden entfernt.`)) {
+      state.mechanisms = state.mechanisms.filter(x => x.id !== t.dataset.mdelCard);
+      state.ideas.forEach(i => i.mechs = i.mechs.filter(x => x !== t.dataset.mdelCard));
+      save(); render();
+    } return;
   }
-  if (t.id === "btn-add-mech") {
-    const n = prompt("Name des Mechanismus?"); if (!n) return; const keys = Object.keys(CATS);
-    const c = prompt("Kategorie – eine von: " + keys.join(", "), "incentive");
-    state.mechanisms.push({ id: "m_" + uid(), name: n.trim(), cat: keys.includes(c) ? c : "incentive", desc: (prompt("Beschreibung:") || "").trim() });
-    save(); render(); return;
+  if (t.id === "btn-add-mech") { openMechDrawer("new"); return; }
+  // mech drawer events
+  if (t.dataset.mcat) { const pick = t.closest(".mech-cat-pick"); $$(".opt[data-mcat]", pick).forEach(o => o.classList.toggle("on", o === t)); return; }
+  if (t.dataset.mcancel) { drawerMech = null; closeDrawer(); return; }
+  if (t.dataset.mdel) {
+    const mid = t.dataset.mdel;
+    if (confirm(`„${mech(mid)?.name}" löschen? Verweise in Karten werden entfernt.`)) {
+      state.mechanisms = state.mechanisms.filter(x => x.id !== mid);
+      state.ideas.forEach(i => i.mechs = i.mechs.filter(x => x !== mid));
+      drawerMech = null; closeDrawer(); save(); render();
+    } return;
+  }
+  if (t.dataset.msave) {
+    const ed = t.closest(".editor");
+    const name = $(".f-mname", ed).value.trim();
+    if (!name) { toast("Bitte einen Namen eingeben."); return; }
+    const cat = $(".opt.on[data-mcat]", ed)?.dataset.mcat || "incentive";
+    const desc = $(".f-mdesc", ed).value.trim();
+    if (t.dataset.msave === "new") {
+      state.mechanisms.push({ id: "m_" + uid(), name, cat, desc });
+      toast("Mechanismus hinzugefügt.");
+    } else {
+      const m = mech(t.dataset.msave);
+      m.name = name; m.cat = cat; m.desc = desc;
+      toast("Gespeichert.");
+    }
+    drawerMech = null; closeDrawer(); save(); render(); return;
   }
   if (t.id === "btn-export") { const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "touchpoint-werkstatt.json"; a.click(); URL.revokeObjectURL(a.href); return; }
   if (t.id === "btn-import") { $("#file-input").click(); return; }

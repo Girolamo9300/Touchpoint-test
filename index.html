@@ -221,6 +221,15 @@
   .sum-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
   .tag-new { background: #e2f0e8; color: var(--green); }
   .tag-changed { background: var(--accent-bg); color: var(--accent); }
+  .aa-row { display: flex; gap: 10px; }
+  .aa-col { flex: 1; min-width: 0; }
+  .aa-manage-sec { margin-bottom: 1.1rem; }
+  .aa-manage-sec .uses-h { margin-bottom: 8px; }
+  .aa-item { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 7px 0; border-top: 0.5px solid var(--border-soft); }
+  .aa-item .aa-name { flex: 1; min-width: 120px; }
+  .aa-item .aa-count { font-size: 11px; color: var(--faint); white-space: nowrap; }
+  .aa-item .select { font-size: 11px; padding: 4px 6px; }
+  .aa-item .link-del { font-size: 16px; line-height: 1; padding: 0 2px; }
 
   @media (max-width: 640px) { .metric-grid { grid-template-columns: 1fr 1fr; } .wrap { padding: 1.25rem 1rem 3rem; } }
   @media print {
@@ -289,9 +298,12 @@
       <span class="row-label" id="sum-totals"></span>
       <span style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
         <select class="select" id="sum-seg" style="font-size:12px"></select>
+        <select class="select" id="sum-action" style="font-size:12px"></select>
+        <select class="select" id="sum-article" style="font-size:12px"></select>
         <span class="row-label" style="margin-right:0">Änderungen ab</span>
         <input type="date" class="select" id="sum-since" style="font-size:12px">
         <span class="chip" id="sum-since-clear" hidden>Zurücksetzen <span class="x">✕</span></span>
+        <button class="btn" id="btn-manage-aa">Aktionen &amp; Artikel verwalten</button>
         <button class="btn" id="btn-copy-summary">Als Text kopieren</button>
       </span>
     </div>
@@ -731,6 +743,18 @@ function editorFields(i) {
     <textarea class="tf f-desc" rows="3" placeholder="Wie entwickeln wir das Segment hier im FMCG-Verhalten weiter?">${i ? esc(i.desc) : ""}</textarea>
     <label class="fl">Mechanismen</label>
     <div class="mech-pick">${cur().mechanisms.map(m => `<span class="mech-chip ${mechs.includes(m.id) ? "on" : ""}" data-mech="${m.id}"><span class="mdot" style="background:${CATS[m.cat].color}"></span>${esc(m.name)}</span>`).join("")}</div>
+    <div class="aa-row">
+      <div class="aa-col">
+        <label class="fl">Aktion (optional)</label>
+        <input class="tf f-action" list="dl-actions" placeholder="z. B. Herbst-Sampling Sorte X" value="${i ? esc(i.action || "") : ""}">
+      </div>
+      <div class="aa-col">
+        <label class="fl">Artikel (optional)</label>
+        <input class="tf f-article" list="dl-articles" placeholder="z. B. konkreter Artikel / SKU" value="${i ? esc(i.article || "") : ""}">
+      </div>
+    </div>
+    <datalist id="dl-actions">${distinctVals("action").map(v => `<option value="${esc(v)}"></option>`).join("")}</datalist>
+    <datalist id="dl-articles">${distinctVals("article").map(v => `<option value="${esc(v)}"></option>`).join("")}</datalist>
     <label class="fl">Timing · Kalenderwoche (optional)</label>
     <div class="kw-row">
       <span class="kw-lbl">von</span><select class="tf-mini f-fy">${yOpts(t ? t.fy : 2026)}</select>
@@ -757,6 +781,8 @@ function readEditor(el) {
     title: $(".f-title", el).value.trim(),
     desc: $(".f-desc", el).value.trim(),
     mechs: $$(".mech-chip.on", el).map(c => c.dataset.mech),
+    action: $(".f-action", el).value.trim(),
+    article: $(".f-article", el).value.trim(),
     prio: +($(".opt.on[data-prio]", el)?.dataset.prio || 0),
     status: $(".opt.on[data-status]", el)?.dataset.status || "idee",
     timing
@@ -765,6 +791,7 @@ function readEditor(el) {
 
 /* ---------- glossary ---------- */
 let drawerMech = null; // null = closed | mechId | "new"
+let drawerManage = false; // Verwaltungs-Panel Aktionen/Artikel offen?
 function openMechDrawer(mechId) {
   drawerCell = null; drawerEditing = null;
   drawerMech = mechId;
@@ -828,6 +855,10 @@ function renderGlossary() {
 /* ---------- summary (Matrix in Textform) ---------- */
 const RECENT_MS = 7 * DAY; // Default-Fenster für Badges, wenn kein Stichtag gesetzt ist
 const nowTs = () => Date.now();
+// eindeutige, nicht-leere Werte eines Idee-Feldes (action/article) über die aktive Kampagne
+function distinctVals(key) {
+  return [...new Set(cur().ideas.map(i => (i[key] || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "de"));
+}
 function fmtTs(ts) { if (!ts) return ""; const d = new Date(ts), p = x => String(x).padStart(2, "0");
   return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}, ${p(d.getHours())}:${p(d.getMinutes())}`; }
 function fmtDate(s) { if (!s) return ""; const d = new Date(s + "T00:00:00"), p = x => String(x).padStart(2, "0");
@@ -846,30 +877,38 @@ function renderSummary() {
   const c = cur(), all = c.ideas, cut = cutoffMs(), since = c.ui.sumSince || "";
   let segF = c.ui.sumSeg || "";
   if (segF && !c.segments.find(s => s.id === segF)) { segF = ""; c.ui.sumSeg = ""; }
+  const actVals = distinctVals("action"), artVals = distinctVals("article");
+  let actF = c.ui.sumAction || "", artF = c.ui.sumArticle || "";
+  if (actF && !actVals.includes(actF)) { actF = ""; c.ui.sumAction = ""; }
+  if (artF && !artVals.includes(artF)) { artF = ""; c.ui.sumArticle = ""; }
   const segSel = $("#sum-seg");
   if (segSel) segSel.innerHTML = `<option value="">Kundengruppe: alle</option>` +
     c.segments.map(s => `<option value="${s.id}" ${segF === s.id ? "selected" : ""}>${esc(s.name)}</option>`).join("");
+  const actSel = $("#sum-action");
+  if (actSel) actSel.innerHTML = `<option value="">Aktion: alle</option>` +
+    actVals.map(v => `<option value="${esc(v)}" ${actF === v ? "selected" : ""}>${esc(v)}</option>`).join("");
+  const artSel = $("#sum-article");
+  if (artSel) artSel.innerHTML = `<option value="">Artikel: alle</option>` +
+    artVals.map(v => `<option value="${esc(v)}" ${artF === v ? "selected" : ""}>${esc(v)}</option>`).join("");
   const sinceEl = $("#sum-since"); if (sinceEl && sinceEl.value !== since) sinceEl.value = since;
   const clearEl = $("#sum-since-clear"); if (clearEl) clearEl.hidden = !since;
 
   let visible = cut != null ? all.filter(i => (i.updatedAt || i.createdAt || 0) >= cut) : all;
   if (segF) visible = visible.filter(i => i.segId === segF);
+  if (actF) visible = visible.filter(i => (i.action || "") === actF);
+  if (artF) visible = visible.filter(i => (i.article || "") === artF);
+  const anyFilter = cut != null || !!segF || !!actF || !!artF;
   const segList = segF ? c.segments.filter(s => s.id === segF) : c.segments;
 
   $("#sum-totals").textContent =
     `${all.length} Idee${all.length === 1 ? "" : "n"} · ${all.filter(i => i.status === "geplant").length} geplant · ${all.filter(i => i.status === "live").length} live · ${all.filter(i => i.timing).length} mit Timing` +
-    (cut != null ? ` · ${visible.length} ab ${fmtDate(since)}` : "");
+    (cut != null || segF || actF || artF ? ` · ${visible.length} gefiltert` : "");
   if (!all.length) { $("#summary-body").innerHTML = `<div class="empty">Noch keine Ideen in dieser Kampagne.</div>`; return; }
-  if (!visible.length) {
-    const msg = cut != null && segF ? `Keine Änderungen ab ${fmtDate(since)} in dieser Kundengruppe.`
-      : cut != null ? `Keine Änderungen ab ${fmtDate(since)}.`
-      : segF ? `Keine Ideen in dieser Kundengruppe.` : `Keine Einträge.`;
-    $("#summary-body").innerHTML = `<div class="empty">${msg}</div>`; return;
-  }
+  if (!visible.length) { $("#summary-body").innerHTML = `<div class="empty">Keine Einträge für die aktuelle Filterauswahl.</div>`; return; }
   let html = "";
   segList.forEach(s => {
     const segIdeas = visible.filter(i => i.segId === s.id);
-    if (cut != null && !segIdeas.length) return;
+    if (anyFilter && !segIdeas.length) return;
     html += `<div class="sum-seg"><div class="sum-seg-h"><span class="seg-dot" style="background:${s.color}"></span>${esc(s.name)}` +
       `<span style="color:var(--faint);font-weight:400;font-size:12px">· ${segIdeas.length} Idee${segIdeas.length === 1 ? "" : "n"}${s.meta ? " · " + esc(s.meta) : ""}</span></div>`;
     if (!segIdeas.length) { html += `<div class="sum-idea" style="color:var(--faint)">— keine Ideen</div></div>`; return; }
@@ -881,8 +920,10 @@ function renderSummary() {
         const mechs = i.mechs.map(mid => mech(mid)?.name).filter(Boolean);
         const stars = i.prio ? `<span class="stars">${"★".repeat(i.prio)}</span>` : "";
         const kw = i.timing ? `<span class="kwtag">${kwLabel(i.timing)}</span>` : "";
+        const aa = [(i.action || "").trim() ? "Aktion: " + esc(i.action.trim()) : "", (i.article || "").trim() ? "Artikel: " + esc(i.article.trim()) : ""].filter(Boolean).join(" · ");
         html += `<div class="sum-idea"><span class="t">${esc(i.title)}</span>` +
           `<span class="imeta"><span class="stat stat-${i.status}">${i.status}</span>${stars}${kw}${changeBadge(i)}</span>` +
+          `${aa ? `<div class="sum-sub">${aa}</div>` : ""}` +
           `${mechs.length ? `<div class="sum-sub">Mechanismen: ${mechs.map(esc).join(", ")}</div>` : ""}` +
           `${i.desc ? `<div class="sum-sub">${esc(i.desc)}</div>` : ""}` +
           `${i.updatedAt ? `<div class="sum-sub" style="color:var(--faint)">Zuletzt geändert: ${fmtTs(i.updatedAt)}</div>` : ""}</div>`;
@@ -895,15 +936,23 @@ function renderSummary() {
 function summaryText() {
   const c = cur(), all = c.ideas, cut = cutoffMs(), since = c.ui.sumSince || "";
   const segF = c.ui.sumSeg && c.segments.find(s => s.id === c.ui.sumSeg) ? c.ui.sumSeg : "";
+  const actVals = distinctVals("action"), artVals = distinctVals("article");
+  const actF = c.ui.sumAction && actVals.includes(c.ui.sumAction) ? c.ui.sumAction : "";
+  const artF = c.ui.sumArticle && artVals.includes(c.ui.sumArticle) ? c.ui.sumArticle : "";
   let visible = cut != null ? all.filter(i => (i.updatedAt || i.createdAt || 0) >= cut) : all;
   if (segF) visible = visible.filter(i => i.segId === segF);
+  if (actF) visible = visible.filter(i => (i.action || "") === actF);
+  if (artF) visible = visible.filter(i => (i.article || "") === artF);
+  const anyFilter = cut != null || !!segF || !!actF || !!artF;
   const segList = segF ? c.segments.filter(s => s.id === segF) : c.segments;
   let out = `${c.name}\n${all.length} Ideen · ${all.filter(i => i.status === "geplant").length} geplant · ${all.filter(i => i.status === "live").length} live · ${all.filter(i => i.timing).length} mit Timing` +
     (segF ? ` · Kundengruppe: ${seg(segF)?.name || ""}` : "") +
+    (actF ? ` · Aktion: ${actF}` : "") +
+    (artF ? ` · Artikel: ${artF}` : "") +
     (cut != null ? ` · Änderungen ab ${fmtDate(since)} (${visible.length})` : "") + `\n`;
   segList.forEach(s => {
     const segIdeas = visible.filter(i => i.segId === s.id);
-    if (cut != null && !segIdeas.length) return;
+    if (anyFilter && !segIdeas.length) return;
     out += `\n## ${s.name} (${segIdeas.length})${s.meta ? " — " + s.meta : ""}\n`;
     if (!segIdeas.length) { out += `  — keine Ideen\n`; return; }
     c.domains.forEach(d => d.touchpoints.forEach(t => {
@@ -914,6 +963,8 @@ function summaryText() {
         const mechs = i.mechs.map(mid => mech(mid)?.name).filter(Boolean);
         const k = changeKind(i);
         out += `    • ${i.title} [${i.status}${i.prio ? ", Prio " + i.prio : ""}${i.timing ? ", " + kwLabel(i.timing) : ""}${k ? ", " + k : ""}]\n`;
+        const aa = [(i.action || "").trim() ? "Aktion: " + i.action.trim() : "", (i.article || "").trim() ? "Artikel: " + i.article.trim() : ""].filter(Boolean).join(" · ");
+        if (aa) out += `      ${aa}\n`;
         if (mechs.length) out += `      Mechanismen: ${mechs.join(", ")}\n`;
         if (i.desc) out += `      ${i.desc}\n`;
         if (i.updatedAt) out += `      Zuletzt geändert: ${fmtTs(i.updatedAt)}\n`;
@@ -930,6 +981,56 @@ function copyText(txt) {
   ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select();
   try { document.execCommand("copy"); toast("Zusammenfassung kopiert."); } catch (e) { toast("Kopieren nicht möglich."); }
   document.body.removeChild(ta);
+}
+
+/* ---------- Aktionen & Artikel verwalten ---------- */
+const AA_KEYS = [{ key: "action", label: "Aktionen" }, { key: "article", label: "Artikel" }];
+function openManageDrawer() {
+  drawerCell = null; drawerEditing = null; drawerMech = null; drawerManage = true;
+  renderManageDrawer();
+  $("#scrim").classList.add("open"); $("#drawer").classList.add("open");
+}
+function renderManageDrawer() {
+  if (!drawerManage) return;
+  $("#drawer-ctx").textContent = "Zusammenfassung";
+  $("#drawer-title").textContent = "Aktionen & Artikel verwalten";
+  let html = AA_KEYS.map(({ key, label }) => {
+    const vals = distinctVals(key);
+    const rows = vals.length ? vals.map(v => {
+      const count = cur().ideas.filter(i => (i[key] || "").trim() === v).length;
+      const others = vals.filter(o => o !== v);
+      return `<div class="aa-item">
+        <input class="tf aa-name" data-aaedit="${key}" data-aaold="${esc(v)}" value="${esc(v)}">
+        <span class="aa-count">${count} Karte${count === 1 ? "" : "n"}</span>
+        <select class="select" data-aamerge="${key}" data-aafrom="${esc(v)}">
+          <option value="">zusammenführen …</option>
+          ${others.map(o => `<option value="${esc(o)}">→ ${esc(o)}</option>`).join("")}
+        </select>
+        <button class="link-del" data-aadel="${key}" data-aaval="${esc(v)}" title="von allen Karten entfernen">✕</button>
+      </div>`;
+    }).join("") : `<div class="empty" style="padding:.6rem 0;text-align:left">Noch keine ${label}.</div>`;
+    return `<div class="aa-manage-sec"><div class="uses-h">${label} · ${vals.length}</div>${rows}</div>`;
+  }).join("");
+  html += `<div class="kw-hint">Umbenennen wirkt auf alle zugeordneten Karten. „Zusammenführen" verschiebt alle Karten auf den Zielwert. ✕ entfernt den Wert von allen Karten.</div>`;
+  $("#drawer-body").innerHTML = html;
+}
+function renameValue(key, oldVal, newVal) {
+  oldVal = (oldVal || "").trim(); newVal = (newVal || "").trim();
+  if (oldVal === newVal) return;
+  let n = 0;
+  cur().ideas.forEach(i => { if ((i[key] || "").trim() === oldVal) { i[key] = newVal; i.updatedAt = nowTs(); n++; } });
+  if (n) { save(); render(); renderManageDrawer(); toast(newVal ? "Umbenannt." : "Entfernt."); }
+}
+function mergeValue(key, fromVal, toVal) {
+  fromVal = (fromVal || "").trim(); toVal = (toVal || "").trim();
+  if (!toVal || fromVal === toVal) return;
+  renameValue(key, fromVal, toVal); toast("Zusammengeführt.");
+}
+function removeValue(key, val) {
+  val = (val || "").trim();
+  const n = cur().ideas.filter(i => (i[key] || "").trim() === val).length;
+  if (!confirm(`„${val}" von ${n} Karte${n === 1 ? "" : "n"} entfernen?`)) return;
+  renameValue(key, val, "");
 }
 
 /* ---------- view switch + render ---------- */
@@ -980,7 +1081,7 @@ document.addEventListener("click", e => {
 
   if (t.closest("#f-clear")) { cur().ui.filterMech = ""; cur().ui.filterStatus = ""; save(); renderFilterRow(); renderGrid(); return; }
   if (t.closest("#tlf-clear")) { cur().ui.tl = { domain: "", tp: "", mech: "", status: "" }; save(); renderTlFilters(); renderTimeline(); return; }
-  if (t.id === "scrim" || t.id === "drawer-close") { closeDrawer(); drawerMech = null; return; }
+  if (t.id === "scrim" || t.id === "drawer-close") { closeDrawer(); drawerMech = null; drawerManage = false; return; }
 
   if (t.dataset.addcard) { drawerEditing = "new"; renderDrawer(); return; }
   if (t.dataset.cancel) { drawerEditing = null; renderDrawer(); return; }
@@ -1046,6 +1147,8 @@ document.addEventListener("click", e => {
   if (t.id === "btn-import") { $("#file-input").click(); return; }
   if (t.id === "btn-print") { window.print(); return; }
   if (t.id === "btn-copy-summary") { copyText(summaryText()); return; }
+  if (t.id === "btn-manage-aa") { openManageDrawer(); return; }
+  if (t.dataset.aadel) { removeValue(t.dataset.aadel, t.dataset.aaval); return; }
   if (t.closest("#sum-since-clear")) { cur().ui.sumSince = ""; save(); renderSummary(); return; }
   if (t.id === "camp-new") { newCampaign(); return; }
   if (t.id === "camp-rename") { renameCampaign(); return; }
@@ -1102,7 +1205,11 @@ document.addEventListener("change", e => {
   const id = e.target.id;
   if (id === "camp-select") { state.activeCampaignId = e.target.value; save(); render(); switchView("matrix"); return; }
   if (id === "sum-seg") { cur().ui.sumSeg = e.target.value || ""; save(); renderSummary(); return; }
+  if (id === "sum-action") { cur().ui.sumAction = e.target.value || ""; save(); renderSummary(); return; }
+  if (id === "sum-article") { cur().ui.sumArticle = e.target.value || ""; save(); renderSummary(); return; }
   if (id === "sum-since") { cur().ui.sumSince = e.target.value || ""; save(); renderSummary(); return; }
+  if (e.target.dataset.aaedit) { renameValue(e.target.dataset.aaedit, e.target.dataset.aaold, e.target.value); return; }
+  if (e.target.dataset.aamerge) { mergeValue(e.target.dataset.aamerge, e.target.dataset.aafrom, e.target.value); return; }
   if (id === "f-mech") { cur().ui.filterMech = e.target.value; save(); renderFilterRow(); renderGrid(); }
   if (id === "f-stat") { cur().ui.filterStatus = e.target.value; save(); renderFilterRow(); renderGrid(); }
   if (id === "tlf-dom") { cur().ui.tl.domain = e.target.value; cur().ui.tl.tp = ""; save(); renderTlFilters(); renderTimeline(); }

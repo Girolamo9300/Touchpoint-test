@@ -17,13 +17,18 @@
     --cat-incentive: #185fa5; --cat-proof: #1d6e4c; --cat-perso: #6b4fb0;
     --cat-disc: #ba7517; --cat-service: #a3556b;
     --col-w: 26px; --lane-label-w: 168px;
+    --brand: #c2185b;
   }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
     background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
   .wrap { padding: 1.75rem 2rem 4rem; max-width: 1700px; margin: 0 auto; }
 
+  .topbar { background: var(--brand); }
+  .topbar-inner { max-width: 1700px; margin: 0 auto; padding: 15px 2rem;
+    color: #fff; font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
-  h1 { font-size: 22px; font-weight: 500; letter-spacing: -0.01em; color: #ffb6c1; }
+  h1 { font-size: 22px; font-weight: 500; letter-spacing: -0.01em; }
   .subtitle { font-size: 13px; color: var(--muted); margin-top: 3px; }
   .toolbar { display: flex; gap: 6px; }
   .btn { font-size: 12px; padding: 6px 12px; border-radius: 8px; border: 0.5px solid var(--border);
@@ -213,10 +218,10 @@
 </style>
 </head>
 <body>
+<div class="topbar"><div class="topbar-inner">falschenpost - Touchpoint Werkstatt</div></div>
 <div class="wrap">
   <header>
     <div>
-      <h1>Touchpoint-Werkstatt</h1>
       <div class="camp-bar">
         <select class="select camp-select" id="camp-select" title="Kampagne wählen"></select>
         <button class="btn camp-act" id="camp-new">+ Neue Kampagne</button>

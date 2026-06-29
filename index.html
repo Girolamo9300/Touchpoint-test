@@ -437,6 +437,8 @@ function migrateCampaign(c) {
   c.segments = c.segments || []; c.domains = c.domains || [];
   c.mechanisms = c.mechanisms || []; c.ideas = c.ideas || [];
   c.actions = Array.isArray(c.actions) ? c.actions : []; c.articles = Array.isArray(c.articles) ? c.articles : [];
+  if (!c.actionMeta || typeof c.actionMeta !== "object") c.actionMeta = {};
+  if (!c.articleMeta || typeof c.articleMeta !== "object") c.articleMeta = {};
   if (!c.ui) c.ui = { domain: c.domains[0]?.id || "shop", filterMech: "", filterStatus: "" };
   if (!c.ui.tl) c.ui.tl = { domain: "", tp: "", mech: "", status: "" };
   if (!c.ui.matrixRow) c.ui.matrixRow = "segment";
@@ -881,11 +883,41 @@ function readEditor(el) {
 
 /* ---------- glossary ---------- */
 let drawerMech = null; // null = closed | mechId | "new"
+let drawerVal = null;  // null | { key, value }  — Aktion/Artikel-Bearbeitung
 function openMechDrawer(mechId) {
-  drawerCell = null; drawerEditing = null;
+  drawerCell = null; drawerEditing = null; drawerVal = null;
   drawerMech = mechId;
   renderMechDrawer();
   $("#scrim").classList.add("open"); $("#drawer").classList.add("open");
+}
+function openValDrawer(key, value) {
+  drawerCell = null; drawerEditing = null; drawerMech = null;
+  drawerVal = { key, value };
+  renderValDrawer();
+  $("#scrim").classList.add("open"); $("#drawer").classList.add("open");
+}
+function renderValDrawer() {
+  if (!drawerVal) return;
+  const { key, value } = drawerVal, label = key === "action" ? "Aktion" : "Artikel";
+  const others = allVals(key).filter(o => o !== value);
+  const uses = cur().ideas.filter(i => (i[key] || "").trim() === value);
+  $("#drawer-ctx").textContent = key === "action" ? "Aktionen" : "Artikel";
+  $("#drawer-title").textContent = value;
+  $("#drawer-body").innerHTML = `<div class="editor">
+    <div class="ed-head">${label} bearbeiten</div>
+    <label class="fl">Name</label>
+    <input class="tf f-vname" value="${esc(value)}">
+    <label class="fl">Beschreibung</label>
+    <textarea class="tf f-vdesc" rows="4" placeholder="Wofür steht diese ${label}?">${esc(valDesc(key, value))}</textarea>
+    <label class="fl">Zusammenführen mit (optional)</label>
+    <select class="select f-vmerge" style="width:100%"><option value="">—</option>${others.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}</select>
+    <div class="ed-actions">
+      <button class="link-del" data-vdel="1">Löschen</button>
+      <span><button class="link-cancel" data-vcancel="1">Abbrechen</button>
+      <button class="btn btn-primary" data-vsave="1">Speichern</button></span>
+    </div>
+  </div>
+  <div style="margin-top:1rem"><div class="uses-h">Einsatzorte · ${uses.length}</div>${usesList(uses)}</div>`;
 }
 function renderMechDrawer() {
   if (!drawerMech) return;
@@ -940,20 +972,16 @@ function mechCard(m) {
       <span class="medit" data-mdel-card="${m.id}" style="color:var(--red)">Löschen</span>
     </div></div>`;
 }
-function valueCard(key, v, vals) {
-  const uses = cur().ideas.filter(i => (i[key] || "").trim() === v);
-  const others = vals.filter(o => o !== v);
+function valueCard(key, v) {
+  const uses = cur().ideas.filter(i => (i[key] || "").trim() === v), desc = valDesc(key, v);
   return `<div class="mcard">
     <div class="mtop"><div class="mname">${esc(v)}</div>
       <span class="catbadge" style="background:var(--surface-alt);color:var(--muted)">${uses.length} Einsatzort${uses.length === 1 ? "" : "e"}</span></div>
+    <div class="mdesc">${esc(desc) || "<span style='color:var(--faint)'>Noch keine Beschreibung.</span>"}</div>
     <div class="uses"><div class="uses-h">Einsatzorte · ${uses.length}</div>${usesList(uses)}</div>
-    <div class="aa-item" style="margin-top:10px;border-top:0">
-      <input class="tf aa-name" data-aaedit="${key}" data-aaold="${esc(v)}" value="${esc(v)}">
-      <select class="select" data-aamerge="${key}" data-aafrom="${esc(v)}">
-        <option value="">zusammenführen …</option>
-        ${others.map(o => `<option value="${esc(o)}">→ ${esc(o)}</option>`).join("")}
-      </select>
-      <button class="link-del" data-aadel="${key}" data-aaval="${esc(v)}" title="von allen Karten entfernen">✕</button>
+    <div style="display:flex;gap:12px;margin-top:10px">
+      <span class="medit" data-vedit="${key}" data-vval="${esc(v)}">Bearbeiten</span>
+      <span class="medit" data-aadel="${key}" data-aaval="${esc(v)}" style="color:var(--red)">Löschen</span>
     </div></div>`;
 }
 function renderGlossary() {
@@ -972,7 +1000,7 @@ function renderGlossary() {
   if (dim === "mech") { grid.innerHTML = cur().mechanisms.map(mechCard).join(""); return; }
   const key = dim, vals = allVals(key);
   grid.innerHTML = vals.length
-    ? vals.map(v => valueCard(key, v, vals)).join("")
+    ? vals.map(v => valueCard(key, v)).join("")
     : `<div class="empty" style="text-align:left">Noch keine ${dim === "action" ? "Aktionen" : "Artikel"} — lege eine an oder ordne sie an einer Karte zu.</div>`;
 }
 
@@ -989,6 +1017,10 @@ function regFor(key) { const c = cur(), f = key === "action" ? "actions" : "arti
 function allVals(key) {
   return [...new Set([...regFor(key), ...cur().ideas.map(i => i[key] || "")].map(s => (s || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "de"));
 }
+// Metadaten (Beschreibung) pro Wert
+function metaFor(key) { const c = cur(), f = key === "action" ? "actionMeta" : "articleMeta"; if (!c[f] || typeof c[f] !== "object") c[f] = {}; return c[f]; }
+function valDesc(key, v) { return (metaFor(key)[v] || {}).desc || ""; }
+function setValDesc(key, v, desc) { const m = metaFor(key); if (desc) m[v] = { desc }; else delete m[v]; }
 function fmtTs(ts) { if (!ts) return ""; const d = new Date(ts), p = x => String(x).padStart(2, "0");
   return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}, ${p(d.getHours())}:${p(d.getMinutes())}`; }
 function fmtDate(s) { if (!s) return ""; const d = new Date(s + "T00:00:00"), p = x => String(x).padStart(2, "0");
@@ -1131,7 +1163,10 @@ function renameValue(key, oldVal, newVal) {
   const reg = regFor(key), idx = reg.indexOf(oldVal), wasReg = idx >= 0;
   if (wasReg) reg.splice(idx, 1);
   if (newVal && wasReg && !reg.includes(newVal)) reg.push(newVal);
-  if (n || wasReg) { save(); render(); toast(newVal ? "Umbenannt." : "Entfernt."); }
+  // Beschreibung (Metadaten) mitziehen
+  const meta = metaFor(key);
+  if (oldVal in meta) { const moved = meta[oldVal]; delete meta[oldVal]; if (newVal && !(newVal in meta)) meta[newVal] = moved; }
+  save(); render(); toast(newVal ? "Umbenannt." : "Entfernt.");
 }
 function mergeValue(key, fromVal, toVal) {
   fromVal = (fromVal || "").trim(); toVal = (toVal || "").trim();
@@ -1195,7 +1230,7 @@ document.addEventListener("click", e => {
 
   if (t.closest("#f-clear")) { cur().ui.filterMech = ""; cur().ui.filterStatus = ""; save(); renderFilterRow(); renderGrid(); return; }
   if (t.closest("#tlf-clear")) { cur().ui.tl = { domain: "", tp: "", mech: "", status: "" }; save(); renderTlFilters(); renderTimeline(); return; }
-  if (t.id === "scrim" || t.id === "drawer-close") { closeDrawer(); drawerMech = null; return; }
+  if (t.id === "scrim" || t.id === "drawer-close") { closeDrawer(); drawerMech = null; drawerVal = null; return; }
 
   if (t.dataset.addcard) { drawerEditing = "new"; renderDrawer(); return; }
   if (t.dataset.cancel) { drawerEditing = null; renderDrawer(); return; }
@@ -1227,6 +1262,22 @@ document.addEventListener("click", e => {
   const jump = t.closest("[data-jump]");
   if (jump) { const [dom, tpId, segId] = jump.dataset.jump.split("::"); switchView("matrix"); cur().ui.domain = dom; renderDomainRow(); renderGrid(); openCell(tpId, segId, dom); return; }
   if (t.dataset.medit) { openMechDrawer(t.dataset.medit); return; }
+  if (t.dataset.vedit) { openValDrawer(t.dataset.vedit, t.dataset.vval); return; }
+  if (t.dataset.vcancel) { drawerVal = null; closeDrawer(); return; }
+  if (t.dataset.vdel) { const { key, value } = drawerVal; drawerVal = null; closeDrawer(); removeValue(key, value); return; }
+  if (t.dataset.vsave) {
+    const ed = t.closest(".editor"), { key, value } = drawerVal;
+    const merge = $(".f-vmerge", ed).value.trim();
+    if (merge) { drawerVal = null; closeDrawer(); mergeValue(key, value, merge); return; }
+    const name = $(".f-vname", ed).value.trim();
+    if (!name) { toast("Bitte einen Namen eingeben."); return; }
+    if (name !== value && allVals(key).includes(name)) { toast("Name existiert bereits – nutze „Zusammenführen“."); return; }
+    const desc = $(".f-vdesc", ed).value.trim();
+    if (name !== value) renameValue(key, value, name);
+    setValDesc(key, name, desc);
+    drawerVal = null; closeDrawer(); save(); render(); toast("Gespeichert.");
+    return;
+  }
   if (t.dataset.mdelCard) {
     if (confirm(`„${mech(t.dataset.mdelCard)?.name}" löschen? Verweise in Karten werden entfernt.`)) {
       cur().mechanisms = cur().mechanisms.filter(x => x.id !== t.dataset.mdelCard);

@@ -25,9 +25,7 @@
 
   .topbar { background: var(--brand); }
   .topbar-inner { max-width: 1700px; margin: 0 auto; padding: 15px 2rem;
-    color: #fff; font-size: 19px; font-weight: 600; letter-spacing: -0.01em;
-    display: flex; align-items: center; gap: 10px; }
-  .brand-logo { height: 28px; width: auto; display: block; flex-shrink: 0; }
+    color: #fff; font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
 
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
   h1 { font-size: 22px; font-weight: 500; letter-spacing: -0.01em; }
@@ -220,7 +218,7 @@
 </style>
 </head>
 <body>
-<div class="topbar"><div class="topbar-inner"><img class="brand-logo" src="data:image/png;base64,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" alt="">falschenpost - Touchpoint Werkstatt</div></div>
+<div class="topbar"><div class="topbar-inner">falschenpost - Touchpoint Werkstatt</div></div>
 <div class="wrap">
   <header>
     <div>

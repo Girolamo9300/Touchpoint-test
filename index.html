@@ -287,7 +287,8 @@
   <div id="view-summary" style="display:none">
     <div class="row" style="margin-top:1.5rem; justify-content:space-between">
       <span class="row-label" id="sum-totals"></span>
-      <span style="display:flex; gap:8px; align-items:center">
+      <span style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+        <select class="select" id="sum-seg" style="font-size:12px"></select>
         <span class="row-label" style="margin-right:0">Änderungen ab</span>
         <input type="date" class="select" id="sum-since" style="font-size:12px">
         <span class="chip" id="sum-since-clear" hidden>Zurücksetzen <span class="x">✕</span></span>
@@ -843,16 +844,30 @@ function changeBadge(i) { const k = changeKind(i); return k ? `<span class="stat
 
 function renderSummary() {
   const c = cur(), all = c.ideas, cut = cutoffMs(), since = c.ui.sumSince || "";
-  const visible = cut != null ? all.filter(i => (i.updatedAt || i.createdAt || 0) >= cut) : all;
+  let segF = c.ui.sumSeg || "";
+  if (segF && !c.segments.find(s => s.id === segF)) { segF = ""; c.ui.sumSeg = ""; }
+  const segSel = $("#sum-seg");
+  if (segSel) segSel.innerHTML = `<option value="">Kundengruppe: alle</option>` +
+    c.segments.map(s => `<option value="${s.id}" ${segF === s.id ? "selected" : ""}>${esc(s.name)}</option>`).join("");
   const sinceEl = $("#sum-since"); if (sinceEl && sinceEl.value !== since) sinceEl.value = since;
   const clearEl = $("#sum-since-clear"); if (clearEl) clearEl.hidden = !since;
+
+  let visible = cut != null ? all.filter(i => (i.updatedAt || i.createdAt || 0) >= cut) : all;
+  if (segF) visible = visible.filter(i => i.segId === segF);
+  const segList = segF ? c.segments.filter(s => s.id === segF) : c.segments;
+
   $("#sum-totals").textContent =
     `${all.length} Idee${all.length === 1 ? "" : "n"} · ${all.filter(i => i.status === "geplant").length} geplant · ${all.filter(i => i.status === "live").length} live · ${all.filter(i => i.timing).length} mit Timing` +
     (cut != null ? ` · ${visible.length} ab ${fmtDate(since)}` : "");
   if (!all.length) { $("#summary-body").innerHTML = `<div class="empty">Noch keine Ideen in dieser Kampagne.</div>`; return; }
-  if (cut != null && !visible.length) { $("#summary-body").innerHTML = `<div class="empty">Keine Änderungen ab ${fmtDate(since)}.</div>`; return; }
+  if (!visible.length) {
+    const msg = cut != null && segF ? `Keine Änderungen ab ${fmtDate(since)} in dieser Kundengruppe.`
+      : cut != null ? `Keine Änderungen ab ${fmtDate(since)}.`
+      : segF ? `Keine Ideen in dieser Kundengruppe.` : `Keine Einträge.`;
+    $("#summary-body").innerHTML = `<div class="empty">${msg}</div>`; return;
+  }
   let html = "";
-  c.segments.forEach(s => {
+  segList.forEach(s => {
     const segIdeas = visible.filter(i => i.segId === s.id);
     if (cut != null && !segIdeas.length) return;
     html += `<div class="sum-seg"><div class="sum-seg-h"><span class="seg-dot" style="background:${s.color}"></span>${esc(s.name)}` +
@@ -879,10 +894,14 @@ function renderSummary() {
 }
 function summaryText() {
   const c = cur(), all = c.ideas, cut = cutoffMs(), since = c.ui.sumSince || "";
-  const visible = cut != null ? all.filter(i => (i.updatedAt || i.createdAt || 0) >= cut) : all;
+  const segF = c.ui.sumSeg && c.segments.find(s => s.id === c.ui.sumSeg) ? c.ui.sumSeg : "";
+  let visible = cut != null ? all.filter(i => (i.updatedAt || i.createdAt || 0) >= cut) : all;
+  if (segF) visible = visible.filter(i => i.segId === segF);
+  const segList = segF ? c.segments.filter(s => s.id === segF) : c.segments;
   let out = `${c.name}\n${all.length} Ideen · ${all.filter(i => i.status === "geplant").length} geplant · ${all.filter(i => i.status === "live").length} live · ${all.filter(i => i.timing).length} mit Timing` +
+    (segF ? ` · Kundengruppe: ${seg(segF)?.name || ""}` : "") +
     (cut != null ? ` · Änderungen ab ${fmtDate(since)} (${visible.length})` : "") + `\n`;
-  c.segments.forEach(s => {
+  segList.forEach(s => {
     const segIdeas = visible.filter(i => i.segId === s.id);
     if (cut != null && !segIdeas.length) return;
     out += `\n## ${s.name} (${segIdeas.length})${s.meta ? " — " + s.meta : ""}\n`;
@@ -1082,6 +1101,7 @@ function renderCampaignBar() {
 document.addEventListener("change", e => {
   const id = e.target.id;
   if (id === "camp-select") { state.activeCampaignId = e.target.value; save(); render(); switchView("matrix"); return; }
+  if (id === "sum-seg") { cur().ui.sumSeg = e.target.value || ""; save(); renderSummary(); return; }
   if (id === "sum-since") { cur().ui.sumSince = e.target.value || ""; save(); renderSummary(); return; }
   if (id === "f-mech") { cur().ui.filterMech = e.target.value; save(); renderFilterRow(); renderGrid(); }
   if (id === "f-stat") { cur().ui.filterStatus = e.target.value; save(); renderFilterRow(); renderGrid(); }

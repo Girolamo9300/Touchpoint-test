@@ -296,7 +296,10 @@
         </select>
         <span class="row-label" id="gloss-hint" style="margin-right:0; text-transform:none; letter-spacing:0"></span>
       </span>
-      <button class="btn btn-primary" id="btn-add-mech">+ Mechanismus</button>
+      <span style="display:flex; gap:6px">
+        <button class="btn btn-primary" id="btn-add-mech">+ Mechanismus</button>
+        <button class="btn btn-primary" id="btn-add-val" style="display:none">+ Aktion</button>
+      </span>
     </div>
     <div class="gloss-grid" id="gloss-grid"></div>
   </div>
@@ -431,6 +434,7 @@ function migrateCampaign(c) {
   if (typeof c.subtitle !== "string") c.subtitle = "";
   c.segments = c.segments || []; c.domains = c.domains || [];
   c.mechanisms = c.mechanisms || []; c.ideas = c.ideas || [];
+  c.actions = Array.isArray(c.actions) ? c.actions : []; c.articles = Array.isArray(c.articles) ? c.articles : [];
   if (!c.ui) c.ui = { domain: c.domains[0]?.id || "shop", filterMech: "", filterStatus: "" };
   if (!c.ui.tl) c.ui.tl = { domain: "", tp: "", mech: "", status: "" };
   c.ideas.forEach(i => { if (!Array.isArray(i.mechs)) i.mechs = []; if (i.timing === undefined) i.timing = null; });
@@ -760,8 +764,8 @@ function editorFields(i) {
         <input class="tf f-article" list="dl-articles" placeholder="z. B. konkreter Artikel / SKU" value="${i ? esc(i.article || "") : ""}">
       </div>
     </div>
-    <datalist id="dl-actions">${distinctVals("action").map(v => `<option value="${esc(v)}"></option>`).join("")}</datalist>
-    <datalist id="dl-articles">${distinctVals("article").map(v => `<option value="${esc(v)}"></option>`).join("")}</datalist>
+    <datalist id="dl-actions">${allVals("action").map(v => `<option value="${esc(v)}"></option>`).join("")}</datalist>
+    <datalist id="dl-articles">${allVals("article").map(v => `<option value="${esc(v)}"></option>`).join("")}</datalist>
     <label class="fl">Timing · Kalenderwoche (optional)</label>
     <div class="kw-row">
       <span class="kw-lbl">von</span><select class="tf-mini f-fy">${yOpts(t ? t.fy : 2026)}</select>
@@ -857,9 +861,9 @@ function mechCard(m) {
       <span class="medit" data-mdel-card="${m.id}" style="color:var(--red)">Löschen</span>
     </div></div>`;
 }
-function valueCard(key, v, allVals) {
+function valueCard(key, v, vals) {
   const uses = cur().ideas.filter(i => (i[key] || "").trim() === v);
-  const others = allVals.filter(o => o !== v);
+  const others = vals.filter(o => o !== v);
   return `<div class="mcard">
     <div class="mtop"><div class="mname">${esc(v)}</div>
       <span class="catbadge" style="background:var(--surface-alt);color:var(--muted)">${uses.length} Einsatzort${uses.length === 1 ? "" : "e"}</span></div>
@@ -876,17 +880,19 @@ function valueCard(key, v, allVals) {
 function renderGlossary() {
   const dim = cur().ui.glossDim || "mech";
   const dimSel = $("#gloss-dim"); if (dimSel && dimSel.value !== dim) dimSel.value = dim;
-  const addBtn = $("#btn-add-mech"); if (addBtn) addBtn.style.display = dim === "mech" ? "" : "none";
+  const addMech = $("#btn-add-mech"); if (addMech) addMech.style.display = dim === "mech" ? "" : "none";
+  const addVal = $("#btn-add-val");
+  if (addVal) { addVal.style.display = dim === "mech" ? "none" : ""; addVal.textContent = dim === "action" ? "+ Aktion" : "+ Artikel"; }
   const hint = $("#gloss-hint");
   if (hint) hint.textContent = dim === "mech"
     ? "Einsatzorte aus der Matrix automatisch verknüpft"
-    : "Werte entstehen durch Zuordnung an Karten · umbenennen/zusammenführen wirkt überall";
+    : "Anlegen oder durch Zuordnung an Karten · umbenennen/zusammenführen wirkt überall";
   const grid = $("#gloss-grid");
   if (dim === "mech") { grid.innerHTML = cur().mechanisms.map(mechCard).join(""); return; }
-  const key = dim, vals = distinctVals(key);
+  const key = dim, vals = allVals(key);
   grid.innerHTML = vals.length
     ? vals.map(v => valueCard(key, v, vals)).join("")
-    : `<div class="empty" style="text-align:left">Noch keine ${dim === "action" ? "Aktionen" : "Artikel"} vergeben — entstehen durch Zuordnung an Karten.</div>`;
+    : `<div class="empty" style="text-align:left">Noch keine ${dim === "action" ? "Aktionen" : "Artikel"} — lege eine an oder ordne sie an einer Karte zu.</div>`;
 }
 
 /* ---------- summary (Matrix in Textform) ---------- */
@@ -895,6 +901,12 @@ const nowTs = () => Date.now();
 // eindeutige, nicht-leere Werte eines Idee-Feldes (action/article) über die aktive Kampagne
 function distinctVals(key) {
   return [...new Set(cur().ideas.map(i => (i[key] || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "de"));
+}
+// Namens-Registry pro Kampagne (auch Werte ohne zugeordnete Karten)
+function regFor(key) { const c = cur(), f = key === "action" ? "actions" : "articles"; if (!Array.isArray(c[f])) c[f] = []; return c[f]; }
+// alle bekannten Werte: Registry ∪ aus Karten abgeleitet
+function allVals(key) {
+  return [...new Set([...regFor(key), ...cur().ideas.map(i => i[key] || "")].map(s => (s || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "de"));
 }
 function fmtTs(ts) { if (!ts) return ""; const d = new Date(ts), p = x => String(x).padStart(2, "0");
   return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}, ${p(d.getHours())}:${p(d.getMinutes())}`; }
@@ -914,7 +926,7 @@ function renderSummary() {
   const c = cur(), all = c.ideas, cut = cutoffMs(), since = c.ui.sumSince || "";
   let segF = c.ui.sumSeg || "";
   if (segF && !c.segments.find(s => s.id === segF)) { segF = ""; c.ui.sumSeg = ""; }
-  const actVals = distinctVals("action"), artVals = distinctVals("article");
+  const actVals = allVals("action"), artVals = allVals("article");
   let actF = c.ui.sumAction || "", artF = c.ui.sumArticle || "";
   if (actF && !actVals.includes(actF)) { actF = ""; c.ui.sumAction = ""; }
   if (artF && !artVals.includes(artF)) { artF = ""; c.ui.sumArticle = ""; }
@@ -973,7 +985,7 @@ function renderSummary() {
 function summaryText() {
   const c = cur(), all = c.ideas, cut = cutoffMs(), since = c.ui.sumSince || "";
   const segF = c.ui.sumSeg && c.segments.find(s => s.id === c.ui.sumSeg) ? c.ui.sumSeg : "";
-  const actVals = distinctVals("action"), artVals = distinctVals("article");
+  const actVals = allVals("action"), artVals = allVals("article");
   const actF = c.ui.sumAction && actVals.includes(c.ui.sumAction) ? c.ui.sumAction : "";
   const artF = c.ui.sumArticle && artVals.includes(c.ui.sumArticle) ? c.ui.sumArticle : "";
   let visible = cut != null ? all.filter(i => (i.updatedAt || i.createdAt || 0) >= cut) : all;
@@ -1021,12 +1033,23 @@ function copyText(txt) {
 }
 
 /* ---------- Aktionen & Artikel: Werte über alle Karten pflegen ---------- */
+function addValue(key) {
+  const label = key === "action" ? "Aktion" : "Artikel";
+  const n = prompt(`Name der neuen ${label}?`); if (!n || !n.trim()) return;
+  const v = n.trim();
+  if (allVals(key).includes(v)) { toast(`${label} existiert bereits.`); return; }
+  regFor(key).push(v); save(); render(); toast(`${label} angelegt.`);
+}
 function renameValue(key, oldVal, newVal) {
   oldVal = (oldVal || "").trim(); newVal = (newVal || "").trim();
   if (oldVal === newVal) return;
   let n = 0;
   cur().ideas.forEach(i => { if ((i[key] || "").trim() === oldVal) { i[key] = newVal; i.updatedAt = nowTs(); n++; } });
-  if (n) { save(); render(); toast(newVal ? "Umbenannt." : "Entfernt."); }
+  // Registry mitziehen (auch für Werte ohne Karten)
+  const reg = regFor(key), idx = reg.indexOf(oldVal), wasReg = idx >= 0;
+  if (wasReg) reg.splice(idx, 1);
+  if (newVal && wasReg && !reg.includes(newVal)) reg.push(newVal);
+  if (n || wasReg) { save(); render(); toast(newVal ? "Umbenannt." : "Entfernt."); }
 }
 function mergeValue(key, fromVal, toVal) {
   fromVal = (fromVal || "").trim(); toVal = (toVal || "").trim();
@@ -1036,7 +1059,8 @@ function mergeValue(key, fromVal, toVal) {
 function removeValue(key, val) {
   val = (val || "").trim();
   const n = cur().ideas.filter(i => (i[key] || "").trim() === val).length;
-  if (!confirm(`„${val}" von ${n} Karte${n === 1 ? "" : "n"} entfernen?`)) return;
+  const msg = n ? `„${val}" von ${n} Karte${n === 1 ? "" : "n"} entfernen?` : `„${val}" löschen?`;
+  if (!confirm(msg)) return;
   renameValue(key, val, "");
 }
 
@@ -1049,6 +1073,7 @@ function switchView(v) {
   $("#view-summary").style.display = v === "summary" ? "" : "none";
   if (v === "timeline") { renderTlFilters(); renderTimeline(); }
   if (v === "summary") renderSummary();
+  if (v === "glossary") renderGlossary();
 }
 function render() {
   renderCampaignBar();
@@ -1122,6 +1147,7 @@ document.addEventListener("click", e => {
     } return;
   }
   if (t.id === "btn-add-mech") { openMechDrawer("new"); return; }
+  if (t.id === "btn-add-val") { addValue(cur().ui.glossDim || "mech"); return; }
   // mech drawer events
   if (t.dataset.mcat) { const pick = t.closest(".mech-cat-pick"); $$(".opt[data-mcat]", pick).forEach(o => o.classList.toggle("on", o === t)); return; }
   if (t.dataset.mcancel) { drawerMech = null; closeDrawer(); return; }

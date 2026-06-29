@@ -219,6 +219,8 @@
   .sum-idea .t { font-weight: 500; }
   .sum-idea .imeta { display: inline-flex; gap: 6px; margin-left: 4px; vertical-align: middle; }
   .sum-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .tag-new { background: #e2f0e8; color: var(--green); }
+  .tag-changed { background: var(--accent-bg); color: var(--accent); }
 
   @media (max-width: 640px) { .metric-grid { grid-template-columns: 1fr 1fr; } .wrap { padding: 1.25rem 1rem 3rem; } }
   @media print {
@@ -285,7 +287,10 @@
   <div id="view-summary" style="display:none">
     <div class="row" style="margin-top:1.5rem; justify-content:space-between">
       <span class="row-label" id="sum-totals"></span>
-      <button class="btn" id="btn-copy-summary">Als Text kopieren</button>
+      <span style="display:flex; gap:8px; align-items:center">
+        <span class="chip" id="sum-recent-toggle">Nur kürzlich geänderte</span>
+        <button class="btn" id="btn-copy-summary">Als Text kopieren</button>
+      </span>
     </div>
     <div id="summary-body"></div>
   </div>
@@ -818,14 +823,29 @@ function renderGlossary() {
 }
 
 /* ---------- summary (Matrix in Textform) ---------- */
+const RECENT_MS = 7 * DAY; // "kürzlich" = letzte 7 Tage
+const nowTs = () => Date.now();
+function fmtTs(ts) { if (!ts) return ""; const d = new Date(ts), p = x => String(x).padStart(2, "0");
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}, ${p(d.getHours())}:${p(d.getMinutes())}`; }
+function changeKind(i) { const n = Date.now();
+  if (i.createdAt && n - i.createdAt < RECENT_MS) return "neu";
+  if (i.updatedAt && n - i.updatedAt < RECENT_MS) return "geändert";
+  return null; }
+function changeBadge(i) { const k = changeKind(i); return k ? `<span class="stat tag-${k === "neu" ? "new" : "changed"}">${k}</span>` : ""; }
+
 function renderSummary() {
-  const c = cur(), all = c.ideas;
+  const c = cur(), all = c.ideas, recentOnly = !!c.ui.sumRecentOnly;
+  const visible = recentOnly ? all.filter(changeKind) : all;
+  const tgl = $("#sum-recent-toggle"); if (tgl) tgl.classList.toggle("active", recentOnly);
   $("#sum-totals").textContent =
-    `${all.length} Idee${all.length === 1 ? "" : "n"} · ${all.filter(i => i.status === "geplant").length} geplant · ${all.filter(i => i.status === "live").length} live · ${all.filter(i => i.timing).length} mit Timing`;
+    `${all.length} Idee${all.length === 1 ? "" : "n"} · ${all.filter(i => i.status === "geplant").length} geplant · ${all.filter(i => i.status === "live").length} live · ${all.filter(i => i.timing).length} mit Timing` +
+    (recentOnly ? ` · ${visible.length} kürzlich geändert` : "");
   if (!all.length) { $("#summary-body").innerHTML = `<div class="empty">Noch keine Ideen in dieser Kampagne.</div>`; return; }
+  if (recentOnly && !visible.length) { $("#summary-body").innerHTML = `<div class="empty">Keine in den letzten 7 Tagen neu angelegten oder geänderten Ideen.</div>`; return; }
   let html = "";
   c.segments.forEach(s => {
-    const segIdeas = all.filter(i => i.segId === s.id);
+    const segIdeas = visible.filter(i => i.segId === s.id);
+    if (recentOnly && !segIdeas.length) return;
     html += `<div class="sum-seg"><div class="sum-seg-h"><span class="seg-dot" style="background:${s.color}"></span>${esc(s.name)}` +
       `<span style="color:var(--faint);font-weight:400;font-size:12px">· ${segIdeas.length} Idee${segIdeas.length === 1 ? "" : "n"}${s.meta ? " · " + esc(s.meta) : ""}</span></div>`;
     if (!segIdeas.length) { html += `<div class="sum-idea" style="color:var(--faint)">— keine Ideen</div></div>`; return; }
@@ -838,9 +858,10 @@ function renderSummary() {
         const stars = i.prio ? `<span class="stars">${"★".repeat(i.prio)}</span>` : "";
         const kw = i.timing ? `<span class="kwtag">${kwLabel(i.timing)}</span>` : "";
         html += `<div class="sum-idea"><span class="t">${esc(i.title)}</span>` +
-          `<span class="imeta"><span class="stat stat-${i.status}">${i.status}</span>${stars}${kw}</span>` +
+          `<span class="imeta"><span class="stat stat-${i.status}">${i.status}</span>${stars}${kw}${changeBadge(i)}</span>` +
           `${mechs.length ? `<div class="sum-sub">Mechanismen: ${mechs.map(esc).join(", ")}</div>` : ""}` +
-          `${i.desc ? `<div class="sum-sub">${esc(i.desc)}</div>` : ""}</div>`;
+          `${i.desc ? `<div class="sum-sub">${esc(i.desc)}</div>` : ""}` +
+          `${i.updatedAt ? `<div class="sum-sub" style="color:var(--faint)">Zuletzt geändert: ${fmtTs(i.updatedAt)}</div>` : ""}</div>`;
       });
     }));
     html += `</div>`;
@@ -848,10 +869,13 @@ function renderSummary() {
   $("#summary-body").innerHTML = html;
 }
 function summaryText() {
-  const c = cur(), all = c.ideas;
-  let out = `${c.name}\n${all.length} Ideen · ${all.filter(i => i.status === "geplant").length} geplant · ${all.filter(i => i.status === "live").length} live · ${all.filter(i => i.timing).length} mit Timing\n`;
+  const c = cur(), all = c.ideas, recentOnly = !!c.ui.sumRecentOnly;
+  const visible = recentOnly ? all.filter(changeKind) : all;
+  let out = `${c.name}\n${all.length} Ideen · ${all.filter(i => i.status === "geplant").length} geplant · ${all.filter(i => i.status === "live").length} live · ${all.filter(i => i.timing).length} mit Timing` +
+    (recentOnly ? ` · nur kürzlich geänderte (${visible.length})` : "") + `\n`;
   c.segments.forEach(s => {
-    const segIdeas = all.filter(i => i.segId === s.id);
+    const segIdeas = visible.filter(i => i.segId === s.id);
+    if (recentOnly && !segIdeas.length) return;
     out += `\n## ${s.name} (${segIdeas.length})${s.meta ? " — " + s.meta : ""}\n`;
     if (!segIdeas.length) { out += `  — keine Ideen\n`; return; }
     c.domains.forEach(d => d.touchpoints.forEach(t => {
@@ -860,9 +884,11 @@ function summaryText() {
       out += `  ${d.name} › ${t.name}\n`;
       cell.forEach(i => {
         const mechs = i.mechs.map(mid => mech(mid)?.name).filter(Boolean);
-        out += `    • ${i.title} [${i.status}${i.prio ? ", Prio " + i.prio : ""}${i.timing ? ", " + kwLabel(i.timing) : ""}]\n`;
+        const k = changeKind(i);
+        out += `    • ${i.title} [${i.status}${i.prio ? ", Prio " + i.prio : ""}${i.timing ? ", " + kwLabel(i.timing) : ""}${k ? ", " + k : ""}]\n`;
         if (mechs.length) out += `      Mechanismen: ${mechs.join(", ")}\n`;
         if (i.desc) out += `      ${i.desc}\n`;
+        if (i.updatedAt) out += `      Zuletzt geändert: ${fmtTs(i.updatedAt)}\n`;
       });
     }));
   });
@@ -942,8 +968,9 @@ document.addEventListener("click", e => {
     if (t.dataset.save) {
       const data = readEditor(ed);
       if (!data.title) { toast("Bitte einen Titel eingeben."); return; }
-      if (t.dataset.save === "new") { cur().ideas.push({ id: uid(), domainId: drawerCell.dom, tpId: drawerCell.tpId, segId: drawerCell.segId, ...data }); toast("Karte hinzugefügt."); }
-      else { Object.assign(cur().ideas.find(x => x.id === t.dataset.save), data); toast("Gespeichert."); }
+      const ts = nowTs();
+      if (t.dataset.save === "new") { cur().ideas.push({ id: uid(), domainId: drawerCell.dom, tpId: drawerCell.tpId, segId: drawerCell.segId, ...data, createdAt: ts, updatedAt: ts }); toast("Karte hinzugefügt."); }
+      else { const idea = cur().ideas.find(x => x.id === t.dataset.save); Object.assign(idea, data, { updatedAt: ts }); if (!idea.createdAt) idea.createdAt = ts; toast("Gespeichert."); }
       drawerEditing = null; save(); renderDrawer(); render(); return;
     }
   }
@@ -954,7 +981,7 @@ document.addEventListener("click", e => {
   if (t.dataset.mdelCard) {
     if (confirm(`„${mech(t.dataset.mdelCard)?.name}" löschen? Verweise in Karten werden entfernt.`)) {
       cur().mechanisms = cur().mechanisms.filter(x => x.id !== t.dataset.mdelCard);
-      cur().ideas.forEach(i => i.mechs = i.mechs.filter(x => x !== t.dataset.mdelCard));
+      cur().ideas.forEach(i => { if (i.mechs.includes(t.dataset.mdelCard)) { i.mechs = i.mechs.filter(x => x !== t.dataset.mdelCard); i.updatedAt = nowTs(); } });
       save(); render();
     } return;
   }
@@ -966,7 +993,7 @@ document.addEventListener("click", e => {
     const mid = t.dataset.mdel;
     if (confirm(`„${mech(mid)?.name}" löschen? Verweise in Karten werden entfernt.`)) {
       cur().mechanisms = cur().mechanisms.filter(x => x.id !== mid);
-      cur().ideas.forEach(i => i.mechs = i.mechs.filter(x => x !== mid));
+      cur().ideas.forEach(i => { if (i.mechs.includes(mid)) { i.mechs = i.mechs.filter(x => x !== mid); i.updatedAt = nowTs(); } });
       drawerMech = null; closeDrawer(); save(); render();
     } return;
   }
@@ -991,6 +1018,7 @@ document.addEventListener("click", e => {
   if (t.id === "btn-import") { $("#file-input").click(); return; }
   if (t.id === "btn-print") { window.print(); return; }
   if (t.id === "btn-copy-summary") { copyText(summaryText()); return; }
+  if (t.id === "sum-recent-toggle") { cur().ui.sumRecentOnly = !cur().ui.sumRecentOnly; save(); renderSummary(); return; }
   if (t.id === "camp-new") { newCampaign(); return; }
   if (t.id === "camp-rename") { renameCampaign(); return; }
   if (t.id === "camp-del") { deleteCampaign(); return; }

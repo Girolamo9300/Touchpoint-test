@@ -108,6 +108,17 @@
   .stat-live { background: #e2f0e8; color: var(--green); }
   .stat-abgeschlossen { background: #e3e0d8; color: #55534c; }
   .stat-depriorisiert { background: transparent; color: var(--faint); border: 0.5px dashed var(--border); }
+  #struct-panel { background: var(--surface); border: 0.5px solid var(--border); border-radius: 12px; padding: 1rem 1.1rem; margin-bottom: 1rem; }
+  #struct-panel[hidden] { display: none; }
+  .struct-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.2rem; }
+  .struct-sec .uses-h { margin-bottom: 8px; }
+  .struct-item { display: flex; align-items: center; gap: 6px; padding: 5px 0; border-top: 0.5px solid var(--border-soft); }
+  .struct-item input.tf { padding: 5px 8px; font-size: 12.5px; }
+  .struct-item .s-name { flex: 1; min-width: 90px; }
+  .struct-item .s-meta { flex: 1; min-width: 90px; }
+  .struct-item .link-del { font-size: 15px; line-height: 1; padding: 0 2px; }
+  .struct-add { display: flex; gap: 6px; margin-top: 8px; }
+  .struct-add input.tf { flex: 1; padding: 5px 8px; font-size: 12.5px; }
   .card-id { font-size: 11px; color: var(--faint); margin-bottom: 8px; cursor: pointer; user-select: all; }
   .card-id:hover { color: var(--accent); }
   .priotag { font-size: 9.5px; padding: 1px 6px; border-radius: 99px; font-weight: 500; }
@@ -292,6 +303,8 @@
     <div class="row" id="domain-row"></div>
     <div class="row" id="axis-row"></div>
     <div class="row" id="filter-row"></div>
+    <div class="row" id="struct-row"><span class="chip" id="struct-toggle">⚙ Struktur bearbeiten</span></div>
+    <div id="struct-panel" hidden></div>
     <div class="grid-scroll"><div class="grid" id="grid"></div></div>
   </div>
 
@@ -633,6 +646,53 @@ function renderAxisRow() {
   $("#axis-row").innerHTML = `<span class="row-label">Achsen</span>
     <span class="kw-lbl">Zeilen</span><select class="select" id="ax-row">${opt(r, c)}</select>
     <span class="kw-lbl">Spalten</span><select class="select" id="ax-col">${opt(c, r)}</select>`;
+}
+
+/* ---------- Struktur-Bereich (Domänen / Touchpoints / Segmente) ---------- */
+let structTpDom = null, structPending = null; // structPending: "sd:id" | "stp:id" | "ss:id"
+const SEG_PALETTE = ["#c77da6", "#82be3c", "#94c2dc", "#5ba3a8", "#b9d98c", "#e0a458", "#8a7bd8", "#d87b7b", "#5aa2a8", "#c0a35a"];
+function renderStruct() {
+  const panel = $("#struct-panel"); if (!panel || panel.hidden) return;
+  const c = cur();
+  const domSec = `<div class="struct-sec"><div class="uses-h">Domänen · ${c.domains.length}</div>
+    ${c.domains.map(d => `<div class="struct-item"><input class="tf s-name" data-sd-rename="${d.id}" value="${esc(d.name)}">${structPending === "sd:" + d.id ? `<button class="link-del" data-sd-delok="${d.id}" style="white-space:nowrap;font-size:11px">${c.ideas.filter(i => i.domainId === d.id).length} Ideen löschen?</button>` : `<button class="link-del" data-sd-del="${d.id}" title="löschen">✕</button>`}</div>`).join("")}
+    <div class="struct-add"><input class="tf s-new" id="sd-new" placeholder="Neue Domäne…"><button class="btn btn-primary" id="sd-add">+ Domäne</button></div></div>`;
+  const did = (structTpDom && domain(structTpDom)) ? structTpDom : c.domains[0]?.id; structTpDom = did;
+  const d = domain(did);
+  const tpSec = `<div class="struct-sec"><div class="uses-h">Touchpoints</div>
+    <select class="select" id="stp-dom" style="margin-bottom:8px; width:100%">${c.domains.map(x => `<option value="${x.id}" ${x.id === did ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select>
+    ${d ? d.touchpoints.map(t => `<div class="struct-item"><input class="tf s-name" data-stp-rename="${t.id}" value="${esc(t.name)}">${structPending === "stp:" + t.id ? `<button class="link-del" data-stp-delok="${t.id}" style="white-space:nowrap;font-size:11px">${c.ideas.filter(i => i.tpId === t.id).length} Ideen löschen?</button>` : `<button class="link-del" data-stp-del="${t.id}" title="löschen">✕</button>`}</div>`).join("") : ""}
+    <div class="struct-add"><input class="tf s-new" id="stp-new" placeholder="Neuer Touchpoint…"><button class="btn btn-primary" id="stp-add">+ Touchpoint</button></div></div>`;
+  const segSec = `<div class="struct-sec"><div class="uses-h">Segmente · ${c.segments.length}</div>
+    ${c.segments.map(s => `<div class="struct-item"><span class="seg-dot" style="background:${s.color}"></span><input class="tf s-name" data-ss-rename="${s.id}" value="${esc(s.name)}"><input class="tf s-meta" data-ss-meta="${s.id}" value="${esc(s.meta || "")}" placeholder="Subtext…">${structPending === "ss:" + s.id ? `<button class="link-del" data-ss-delok="${s.id}" style="white-space:nowrap;font-size:11px">${c.ideas.filter(i => i.segId === s.id).length} Ideen löschen?</button>` : `<button class="link-del" data-ss-del="${s.id}" title="löschen">✕</button>`}</div>`).join("")}
+    <div class="struct-add"><input class="tf s-new" id="ss-new" placeholder="Neues Segment…"><button class="btn btn-primary" id="ss-add">+ Segment</button></div></div>`;
+  panel.innerHTML = `<div class="struct-grid">${domSec}${tpSec}${segSec}</div>
+    <div class="kw-hint">Umbenennen wirkt beim Verlassen des Feldes · Löschen entfernt kaskadierend auch die zugehörigen Ideen.</div>`;
+}
+function structRefresh() { save(); render(); }
+function addDomain(name) { name = (name || "").trim(); if (!name) return; cur().domains.push({ id: "d_" + uid(), name, touchpoints: [] }); structRefresh(); }
+function renameDomain(id, name) { const d = domain(id); if (d && (name || "").trim()) { d.name = name.trim(); structRefresh(); } }
+function deleteDomain(id) {
+  const c = cur();
+  c.domains = c.domains.filter(x => x.id !== id); c.ideas = c.ideas.filter(i => i.domainId !== id);
+  if (Array.isArray(c.ui.domains)) c.ui.domains = c.ui.domains.filter(x => x !== id);
+  if (structTpDom === id) structTpDom = null;
+  structPending = null; structRefresh();
+}
+function addTp(did, name) { name = (name || "").trim(); const d = domain(did); if (d && name) { d.touchpoints.push({ id: "t_" + uid(), name }); structRefresh(); } }
+function renameTp(tpId, name) { const t = tp(domainOfTp(tpId), tpId); if (t && (name || "").trim()) { t.name = name.trim(); structRefresh(); } }
+function deleteTp(tpId) {
+  const did = domainOfTp(tpId), d = domain(did), t = tp(did, tpId); if (!t) return;
+  d.touchpoints = d.touchpoints.filter(x => x.id !== tpId); cur().ideas = cur().ideas.filter(i => i.tpId !== tpId);
+  structPending = null; structRefresh();
+}
+function addSeg(name) { name = (name || "").trim(); if (!name) return; const color = SEG_PALETTE[cur().segments.length % SEG_PALETTE.length]; cur().segments.push({ id: "s_" + uid(), name, color, meta: "" }); structRefresh(); }
+function renameSeg(id, name) { const s = seg(id); if (s && (name || "").trim()) { s.name = name.trim(); structRefresh(); } }
+function setSegMeta(id, meta) { const s = seg(id); if (s) { s.meta = (meta || "").trim(); structRefresh(); } }
+function deleteSeg(id) {
+  const c = cur();
+  c.segments = c.segments.filter(x => x.id !== id); c.ideas = c.ideas.filter(i => i.segId !== id);
+  structPending = null; structRefresh();
 }
 
 /* ---------- timeline ---------- */
@@ -1227,7 +1287,7 @@ function switchView(v) {
 }
 function render() {
   renderCampaignBar();
-  renderMetrics(); renderDomainRow(); renderAxisRow(); renderFilterRow(); renderGrid();
+  renderMetrics(); renderDomainRow(); renderAxisRow(); renderFilterRow(); renderGrid(); renderStruct();
   renderTlFilters(); renderTimeline(); renderGlossary(); renderSummary();
   if (!storageOK && !$("#sw")) $(".footer").insertAdjacentHTML("beforeend", ` <b id="sw" style="color:var(--amber)">· Speicher nicht verfügbar – bitte exportieren.</b>`);
 }
@@ -1239,6 +1299,16 @@ document.addEventListener("click", e => {
   if (em && !em.hidden && t.id !== "btn-export" && !t.closest(".export-menu")) em.hidden = true;
   const vt = t.closest(".viewtab"); if (vt) { switchView(vt.dataset.view); return; }
 
+  if (t.id === "struct-toggle") { const p = $("#struct-panel"); p.hidden = !p.hidden; $("#struct-toggle").classList.toggle("active", !p.hidden); structPending = null; renderStruct(); return; }
+  if (t.id === "sd-add") { addDomain($("#sd-new").value); return; }
+  if (t.dataset.sdDel) { if (cur().domains.length <= 1) { toast("Die letzte Domäne kann nicht gelöscht werden."); return; } structPending = "sd:" + t.dataset.sdDel; renderStruct(); return; }
+  if (t.dataset.sdDelok) { deleteDomain(t.dataset.sdDelok); return; }
+  if (t.id === "stp-add") { addTp(structTpDom, $("#stp-new").value); return; }
+  if (t.dataset.stpDel) { structPending = "stp:" + t.dataset.stpDel; renderStruct(); return; }
+  if (t.dataset.stpDelok) { deleteTp(t.dataset.stpDelok); return; }
+  if (t.id === "ss-add") { addSeg($("#ss-new").value); return; }
+  if (t.dataset.ssDel) { if (cur().segments.length <= 1) { toast("Das letzte Segment kann nicht gelöscht werden."); return; } structPending = "ss:" + t.dataset.ssDel; renderStruct(); return; }
+  if (t.dataset.ssDelok) { deleteSeg(t.dataset.ssDelok); return; }
   if (t.dataset.dom) { const arr = cur().ui.domains || (cur().ui.domains = []); const i = arr.indexOf(t.dataset.dom); if (i >= 0) arr.splice(i, 1); else arr.push(t.dataset.dom); save(); renderDomainRow(); renderGrid(); return; }
   if (t.id === "add-domain") { const n = prompt("Name der neuen Domäne?"); if (n) { cur().domains.push({ id: "d_" + uid(), name: n.trim(), touchpoints: [] }); save(); renderDomainRow(); } return; }
   if (t.id === "add-tp") { const did = activeDomains()[0]; const n = prompt("Name des neuen Touchpoints?"); if (n && did) { domain(did).touchpoints.push({ id: "t_" + uid(), name: n.trim() }); save(); renderGrid(); } return; }
@@ -1387,6 +1457,11 @@ document.addEventListener("change", e => {
   if (e.target.dataset.aamerge) { mergeValue(e.target.dataset.aamerge, e.target.dataset.aafrom, e.target.value); return; }
   if (id === "f-stat") { cur().ui.filterStatus = e.target.value; save(); renderFilterRow(); renderGrid(); }
   if (id === "tlf-dom") { cur().ui.tl.domain = e.target.value; cur().ui.tl.tp = ""; save(); renderTlFilters(); renderTimeline(); }
+  if (e.target.dataset.sdRename) { renameDomain(e.target.dataset.sdRename, e.target.value); return; }
+  if (e.target.dataset.stpRename) { renameTp(e.target.dataset.stpRename, e.target.value); return; }
+  if (e.target.dataset.ssRename) { renameSeg(e.target.dataset.ssRename, e.target.value); return; }
+  if (e.target.dataset.ssMeta) { setSegMeta(e.target.dataset.ssMeta, e.target.value); return; }
+  if (id === "stp-dom") { structTpDom = e.target.value; structPending = null; renderStruct(); return; }
   if (id === "tlf-row") { cur().ui.tlRow = e.target.value || "segment"; save(); renderTlFilters(); renderTimeline(); }
   if (id === "tlf-tp") { cur().ui.tl.tp = e.target.value; save(); renderTimeline(); }
   if (id === "tlf-stat") { cur().ui.tl.status = e.target.value; save(); renderTlFilters(); renderTimeline(); }
@@ -1399,6 +1474,12 @@ document.addEventListener("change", e => {
 document.addEventListener("keydown", e => {
   if (e.key === "Escape") closeDrawer();
   if (e.key === "Enter" && e.target.id === "gloss-new-name") { e.preventDefault(); addValue(cur().ui.glossDim || "mech"); }
+  if (e.key === "Enter") {
+    if (e.target.id === "sd-new") { e.preventDefault(); addDomain(e.target.value); }
+    else if (e.target.id === "stp-new") { e.preventDefault(); addTp(structTpDom, e.target.value); }
+    else if (e.target.id === "ss-new") { e.preventDefault(); addSeg(e.target.value); }
+    else if (e.target.dataset && (e.target.dataset.sdRename || e.target.dataset.stpRename || e.target.dataset.ssRename || e.target.dataset.ssMeta)) { e.target.blur(); }
+  }
 });
 
 (async function () { await load(); render(); })();

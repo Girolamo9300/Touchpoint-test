@@ -106,6 +106,14 @@
   .stat-idee { background: #ecebe6; color: #6b6a64; }
   .stat-geplant { background: var(--accent-bg); color: var(--accent); }
   .stat-live { background: #e2f0e8; color: var(--green); }
+  .stat-abgeschlossen { background: #e3e0d8; color: #55534c; }
+  .stat-depriorisiert { background: transparent; color: var(--faint); border: 0.5px dashed var(--border); }
+  .card-id { font-size: 11px; color: var(--faint); margin-bottom: 8px; cursor: pointer; user-select: all; }
+  .card-id:hover { color: var(--accent); }
+  .priotag { font-size: 9.5px; padding: 1px 6px; border-radius: 99px; font-weight: 500; }
+  .prio-could { background: #eeece6; color: #7a786f; }
+  .prio-should { background: #f6ecd6; color: var(--amber); }
+  .prio-must { background: #f6e0dd; color: var(--red); }
   .cell-add { font-size: 11px; color: var(--faint); opacity: 0; transition: opacity .12s; }
   .gbody:hover .cell-add { opacity: 1; }
   .cell-count { position: absolute; top: 4px; right: 6px; font-size: 10px; color: var(--faint); }
@@ -145,6 +153,9 @@
   .tl-bar.st-geplant { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.55) 0 5px, transparent 5px 10px); }
   .tl-bar.st-idee { background-color: transparent !important; }
   .tl-bar.st-idee .t { color: var(--muted); }
+  .tl-bar.st-abgeschlossen { filter: grayscale(.35) brightness(.96); }
+  .tl-bar.st-depriorisiert { opacity: .45; background-color: transparent !important; }
+  .tl-bar.st-depriorisiert .t { color: var(--faint); text-decoration: line-through; }
   .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: .75rem; align-items: center; }
   .legend span.li { display: flex; align-items: center; gap: 6px; }
   .lg-swatch { width: 22px; height: 13px; border-radius: 4px; display: inline-block; border: 1.5px solid transparent; }
@@ -351,7 +362,9 @@ const DAY = 86400000;
 const BASE_YEAR = 2026;
 const uid = () => Math.random().toString(36).slice(2, 9);
 
-const STATUSES = ["idee", "geplant", "live"];
+const STATUSES = ["idee", "geplant", "live", "abgeschlossen", "depriorisiert"];
+const PRIOS = ["could", "should", "must"];
+const prioLabel = p => PRIOS[p] || PRIOS[0];
 const MONTHS = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
 
 function seed() {
@@ -552,7 +565,7 @@ function matchMatrix(i) {
 }
 function kwLabel(t) { return t ? `KW${t.fw}${t.fy !== t.ty || t.fw !== t.tw ? "–" + (t.ty !== t.fy ? t.ty % 100 + "/" : "") + t.tw : ""}` : ""; }
 function ideaMini(i) {
-  const stars = i.prio ? `<span class="stars">${"★".repeat(i.prio)}</span>` : "";
+  const stars = `<span class="priotag prio-${prioLabel(i.prio)}">${prioLabel(i.prio)}</span>`;
   const kw = i.timing ? `<span class="kwtag">${kwLabel(i.timing)}</span>` : "";
   const segColor = seg(i.segId)?.color || "var(--border)";
   return `<div class="idea" data-idea="${i.id}" style="border-left-color:${segColor}">
@@ -763,7 +776,7 @@ function openDrawerCtx(ctx) {
 function openCell(tpId, segId, dom) { openDrawerCtx({ dom: dom || cur().ui.domain, tpId, segId }); }
 function closeDrawer() { $("#scrim").classList.remove("open"); $("#drawer").classList.remove("open"); drawerCell = null; drawerEditing = null; }
 function cardSummary(i) {
-  const stars = i.prio ? `<span class="stars">${"★".repeat(i.prio)}</span>` : "";
+  const stars = `<span class="priotag prio-${prioLabel(i.prio)}">${prioLabel(i.prio)}</span>`;
   const kw = i.timing ? `<span class="kwtag">${kwLabel(i.timing)}</span>` : "";
   const segColor = seg(i.segId)?.color || "var(--border)";
   return `<div class="card-sum" data-edit="${i.id}" style="border-left-color:${segColor}">
@@ -827,6 +840,7 @@ function editorFields(i, ctx) {
       ${needTp ? `<div class="aa-col"><label class="fl">Touchpoint</label><select class="select f-tp" style="width:100%">${domain(ctx.dom).touchpoints.map(tt => `<option value="${tt.id}">${esc(tt.name)}</option>`).join("")}</select></div>` : ""}
     </div>` : "";
   return `
+    ${i ? `<div class="card-id" data-copyid="${i.id}" title="ID kopieren">ID: ${esc(i.id)} <span class="x">⧉</span></div>` : ""}
     ${locFields}
     <label class="fl">Titel</label>
     <input class="tf f-title" placeholder="Worin besteht die Störung / der Eingriff?" value="${i ? esc(i.title) : ""}">
@@ -866,7 +880,7 @@ function editorFields(i, ctx) {
     </div>
     <div class="kw-hint">Leer lassen = ungeplant. Nur „von" ausfüllen = einzelne Woche.</div>
     <label class="fl">Priorität</label>
-    <div class="prio-pick">${[0, 1, 2].map(p => `<span class="opt ${prio === p ? "on" : ""}" data-prio="${p}">${p === 0 ? "—" : "★".repeat(p)}</span>`).join("")}</div>
+    <div class="prio-pick">${[0, 1, 2].map(p => `<span class="opt ${prio === p ? "on" : ""}" data-prio="${p}">${prioLabel(p)}</span>`).join("")}</div>
     <label class="fl">Status</label>
     <div class="stat-pick">${STATUSES.map(st => `<span class="opt ${status === st ? "on" : ""}" data-status="${st}">${st}</span>`).join("")}</div>`;
 }
@@ -1052,7 +1066,7 @@ function renderSummary() {
       if (!cell.length) return;
       html += `<div class="sum-group-h">${esc(d.name)} › ${esc(t.name)}</div>`;
       cell.forEach(i => {
-        const stars = i.prio ? `<span class="stars">${"★".repeat(i.prio)}</span>` : "";
+        const stars = `<span class="priotag prio-${prioLabel(i.prio)}">${prioLabel(i.prio)}</span>`;
         const kw = i.timing ? `<span class="kwtag">${kwLabel(i.timing)}</span>` : "";
         const aa = [(i.mech || "").trim() ? "Mechanik: " + esc(i.mech.trim()) : "", (i.action || "").trim() ? "Aktion: " + esc(i.action.trim()) : "", (i.article || "").trim() ? "Angebot: " + esc(i.article.trim()) : "", (i.theme || "").trim() ? "Thema: " + esc(i.theme.trim()) : ""].filter(Boolean).join(" · ");
         html += `<div class="sum-idea"><span class="t">${esc(i.title)}</span>` +
@@ -1100,7 +1114,7 @@ function summaryText() {
       out += `  ${d.name} › ${t.name}\n`;
       cell.forEach(i => {
         const k = changeKind(i);
-        out += `    • ${i.title} [${i.status}${i.prio ? ", Prio " + i.prio : ""}${i.timing ? ", " + kwLabel(i.timing) : ""}${k ? ", " + k : ""}]\n`;
+        out += `    • ${i.title} [${i.status}, ${prioLabel(i.prio)}${i.timing ? ", " + kwLabel(i.timing) : ""}${k ? ", " + k : ""}]\n`;
         const aa = [(i.mech || "").trim() ? "Mechanik: " + i.mech.trim() : "", (i.action || "").trim() ? "Aktion: " + i.action.trim() : "", (i.article || "").trim() ? "Angebot: " + i.article.trim() : "", (i.theme || "").trim() ? "Thema: " + i.theme.trim() : ""].filter(Boolean).join(" · ");
         if (aa) out += `      ${aa}\n`;
         if (i.desc) out += `      ${i.desc}\n`;
@@ -1110,13 +1124,14 @@ function summaryText() {
   });
   return out;
 }
-function copyText(txt) {
+function copyText(txt, msg) {
+  msg = msg || "Zusammenfassung kopiert.";
   try {
-    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(txt); toast("Zusammenfassung kopiert."); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(txt); toast(msg); return; }
   } catch (e) {}
   const ta = document.createElement("textarea"); ta.value = txt;
   ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select();
-  try { document.execCommand("copy"); toast("Zusammenfassung kopiert."); } catch (e) { toast("Kopieren nicht möglich."); }
+  try { document.execCommand("copy"); toast(msg); } catch (e) { toast("Kopieren nicht möglich."); }
   document.body.removeChild(ta);
 }
 
@@ -1257,6 +1272,7 @@ document.addEventListener("click", e => {
   if (t.dataset.export) { exportData(t.dataset.export); $("#export-menu").hidden = true; return; }
   if (t.id === "btn-import") { $("#file-input").click(); return; }
   if (t.id === "btn-copy-summary") { copyText(summaryText()); return; }
+  if (t.closest("[data-copyid]")) { copyText(t.closest("[data-copyid]").dataset.copyid, "ID kopiert."); return; }
   if (t.dataset.aadel) { removeValue(t.dataset.aadel, t.dataset.aaval); return; }
   if (t.closest("#sum-since-clear")) { cur().ui.sumSince = ""; save(); renderSummary(); return; }
   if (t.id === "camp-new") { newCampaign(); return; }

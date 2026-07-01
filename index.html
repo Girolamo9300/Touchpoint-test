@@ -14,8 +14,6 @@
     --green: #1d6e4c; --amber: #8a5a0a; --red: #a32d2d;
     --seg-neu: #c77da6; --seg-fmcg: #82be3c; --seg-fmcg-in: #b9d98c;
     --seg-bev: #94c2dc; --seg-ex: #5ba3a8;
-    --cat-incentive: #185fa5; --cat-proof: #1d6e4c; --cat-perso: #6b4fb0;
-    --cat-disc: #ba7517; --cat-service: #a3556b;
     --col-w: 26px; --lane-label-w: 168px;
     --brand: #c2185b;
   }
@@ -32,8 +30,6 @@
     color: var(--muted); letter-spacing: .02em; }
 
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
-  h1 { font-size: 22px; font-weight: 500; letter-spacing: -0.01em; }
-  .subtitle { font-size: 13px; color: var(--muted); margin-top: 3px; }
   .toolbar { display: flex; gap: 6px; }
   .btn { font-size: 12px; padding: 6px 12px; border-radius: 8px; border: 0.5px solid var(--border);
     background: var(--surface); color: var(--text); cursor: pointer; transition: all .15s; white-space: nowrap; }
@@ -99,8 +95,6 @@
   .idea:last-of-type { margin-bottom: 0; }
   .idea .ititle { font-size: 12px; font-weight: 500; line-height: 1.35; }
   .imeta { display: flex; align-items: center; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
-  .mdot { width: 7px; height: 7px; border-radius: 99px; flex-shrink: 0; display: inline-block; }
-  .stars { font-size: 10px; color: var(--amber); letter-spacing: -1px; }
   .kwtag { font-size: 9.5px; color: var(--muted); background: var(--surface-alt); padding: 1px 6px; border-radius: 99px; }
   .stat { font-size: 9.5px; padding: 1px 6px; border-radius: 99px; font-weight: 500; }
   .stat-idee { background: #ecebe6; color: #6b6a64; }
@@ -138,16 +132,12 @@
     background: var(--surface-alt); border-right: 0.5px solid var(--border); border-bottom: 0.5px solid var(--border);
     font-size: 11px; color: var(--faint); padding: 6px 10px; display: flex; align-items: flex-end; }
   .tl-headcols { position: relative; border-bottom: 0.5px solid var(--border); }
-  .tl-bands { position: relative; height: 19px; }
-  .tl-band { position: absolute; top: 2px; height: 15px; border-radius: 4px; font-size: 10px; font-weight: 500;
-    padding: 0 7px; line-height: 15px; white-space: nowrap; overflow: hidden; }
   .tl-weeks { display: flex; }
   .tl-wk { width: var(--col-w); flex-shrink: 0; font-size: 9px; color: var(--faint); text-align: center;
     padding: 15px 0 3px; border-right: 0.5px solid var(--border-soft); position: relative; }
   .tl-wk .mo { position: absolute; top: 1px; left: 2px; font-size: 9px; font-weight: 600; color: var(--muted); white-space: nowrap; }
   .tl-wk.mstart { border-left: 1px solid var(--border); }
   .tl-lanes { position: relative; }
-  .tl-laneband { position: absolute; top: 0; bottom: 0; z-index: 0; }
   .tl-today { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--red); z-index: 4; }
   .tl-today::after { content: "heute"; position: absolute; top: 1px; left: 3px; font-size: 9px; color: var(--red); font-weight: 600; }
   .tl-lane { display: flex; position: relative; z-index: 1; border-bottom: 0.5px solid var(--border-soft); }
@@ -196,10 +186,6 @@
   input.tf, textarea.tf { width: 100%; font-family: inherit; font-size: 13px; padding: 7px 9px; border: 0.5px solid var(--border);
     border-radius: 7px; background: var(--surface); color: var(--text); resize: vertical; }
   input.tf:focus, textarea.tf:focus { outline: none; border-color: var(--accent-border); }
-  .mech-pick { display: flex; flex-wrap: wrap; gap: 5px; }
-  .mech-chip { font-size: 11px; padding: 3px 9px; border-radius: 99px; border: 0.5px solid var(--border);
-    background: var(--surface); color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 5px; }
-  .mech-chip.on { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-border); }
   .kw-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .kw-lbl { font-size: 12px; color: var(--muted); }
   .tf-mini { font-family: inherit; font-size: 12px; padding: 5px 7px; border: 0.5px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); }
@@ -258,10 +244,6 @@
   .aa-item .link-del { font-size: 16px; line-height: 1; padding: 0 2px; }
 
   @media (max-width: 640px) { .metric-grid { grid-template-columns: 1fr 1fr; } .wrap { padding: 1.25rem 1rem 3rem; } }
-  @media print {
-    body { background: #fff; } .toolbar, .viewtabs, .row, .cell-add, .drawer, .scrim, .footer .noprint { display: none !important; }
-    .grid-scroll, .tl-scroll { overflow: visible; } .gbody.dim { opacity: 1; }
-  }
 </style>
 </head>
 <body>
@@ -286,7 +268,6 @@
           <div class="export-opt" data-export="workspace">Gesamter Workspace</div>
         </div>
       </div>
-      <button class="btn" id="btn-print">Drucken</button>
       <input type="file" id="file-input" accept="application/json" hidden>
     </div>
   </header>
@@ -445,7 +426,6 @@ function seed() {
   ];
   return {
     id: "c_seed", name: "FMCG-Aktivierung Herbst 2026",
-    subtitle: "Segmente × Touchpoints · Ideen, Mechanismen & Timing",
     segments, domains, mechanisms, ideas,
     ui: { domain: "shop", filterStatus: "", tl: { domain: "", tp: "", status: "" } } };
 }
@@ -459,7 +439,7 @@ function migrateCampaign(c) {
   c = c || {};
   if (!c.id) c.id = "c_" + uid();
   if (!c.name) c.name = "Kampagne";
-  if (typeof c.subtitle !== "string") c.subtitle = "";
+  delete c.subtitle;
   c.segments = c.segments || []; c.domains = c.domains || []; c.ideas = c.ideas || [];
   c.actions = Array.isArray(c.actions) ? c.actions : []; c.articles = Array.isArray(c.articles) ? c.articles : []; c.themes = Array.isArray(c.themes) ? c.themes : []; c.mechaniks = Array.isArray(c.mechaniks) ? c.mechaniks : [];
   if (!c.actionMeta || typeof c.actionMeta !== "object") c.actionMeta = {};
@@ -488,8 +468,7 @@ function migrateWorkspace(w) {
   if (!w || !Array.isArray(w.campaigns)) {
     const camp = migrateCampaign(w);
     camp.name = "FMCG-Aktivierung Herbst 2026";
-    if (!camp.subtitle) camp.subtitle = "Segmente × Touchpoints · Ideen, Mechanismen & Timing";
-    return { version: 2, activeCampaignId: camp.id, campaigns: [camp] };
+    return { version: 3, activeCampaignId: camp.id, campaigns: [camp] };
   }
   w.version = 3;
   w.campaigns = w.campaigns.map(migrateCampaign);
@@ -752,27 +731,14 @@ function tlRowMatch(i, key) {
 }
 function renderTimeline() {
   const COLW = 26, TRACKH = 28, LANEPAD = 8;
-  // frame
-  let minIdx = weekToIdx(2026, 35), maxIdx = weekToIdx(2027, 9);
+  // frame: neutrales Fenster um heute, dehnt sich an vorhandene Timings
+  const nowW0 = weekToIdx(isoWeekYear(new Date()), isoWeekNum(new Date()));
+  let minIdx = nowW0 - 4, maxIdx = nowW0 + 20;
   cur().ideas.filter(i => i.timing && matchTl(i)).forEach(i => {
     const s = weekToIdx(i.timing.fy, i.timing.fw), e = weekToIdx(i.timing.ty, i.timing.tw);
     minIdx = Math.min(minIdx, s, e); maxIdx = Math.max(maxIdx, s, e);
   });
   const nWeeks = maxIdx - minIdx + 1, fullW = nWeeks * COLW;
-
-  // header: bands + weeks
-  let bands = "";
-  const bandDef = [
-    { from: weekToIdx(2026, 40), to: weekToIdx(2026, 52), label: "Q4 2026 · Stabilisieren & lernen", bg: "#f6ecd6", fg: "#8a5a0a" },
-    { from: weekToIdx(2027, 1),  to: maxIdx,              label: "Anfang 2027 · Demand Gen",         bg: "#deeaf8", fg: "#185fa5" }
-  ];
-  bandDef.forEach(b => {
-    const f = Math.max(b.from, minIdx), t = Math.min(b.to, maxIdx); if (t < f) return;
-    bands += `<div class="tl-band" style="left:${(f - minIdx) * COLW}px;width:${(t - f + 1) * COLW}px;background:${b.bg};color:${b.fg}">${b.label}</div>`;
-  });
-  // rollout marker (KW36/2026)
-  const rollIdx = weekToIdx(2026, 36);
-  if (rollIdx >= minIdx && rollIdx <= maxIdx) bands += `<div class="tl-band" style="left:${(rollIdx - minIdx) * COLW}px;width:${COLW}px;background:#1a1a18;color:#fff;padding:0 3px" title="Rollout 01.09.2026">▸</div>`;
 
   let weeks = "";
   for (let idx = minIdx; idx <= maxIdx; idx++) {
@@ -784,12 +750,6 @@ function renderTimeline() {
 
   // lanes
   let lanes = "";
-  // background phase bands behind lanes
-  let laneBands = "";
-  bandDef.forEach(b => {
-    const f = Math.max(b.from, minIdx), t = Math.min(b.to, maxIdx); if (t < f) return;
-    laneBands += `<div class="tl-laneband" style="left:${var_left(f)}px;width:${(t - f + 1) * COLW}px;background:${b.bg}66;opacity:.4"></div>`;
-  });
   function var_left(idx) { return /* lane label width */ 168 + (idx - minIdx) * COLW; }
 
   tlRowValues().forEach(rv => {
@@ -829,13 +789,12 @@ function renderTimeline() {
 
   $("#tl-inner").innerHTML =
     `<div class="tl-head"><div class="tl-corner">${esc(TLROWS[cur().ui.tlRow] || "Segment")} / KW</div>
-       <div class="tl-headcols" style="width:${fullW}px"><div class="tl-bands">${bands}</div><div class="tl-weeks">${weeks}</div></div></div>
-     <div class="tl-lanes">${laneBands}${today}${lanes}</div>`;
+       <div class="tl-headcols" style="width:${fullW}px"><div class="tl-weeks">${weeks}</div></div></div>
+     <div class="tl-lanes">${today}${lanes}</div>`;
 
   // note
   const { y: ty, w: tw } = idxToYW(tIdx);
-  const inFrame = tIdx >= minIdx && tIdx <= maxIdx;
-  $("#tl-note").innerHTML = `Heute: KW${tw}/${ty}. ${inFrame ? "Die Heute-Linie markiert, was aktuell läuft." : "Liegt vor dem Planungsfenster – die Zeitachse ist derzeit eine Planungssicht."} Balken klicken zum Bearbeiten.`;
+  $("#tl-note").innerHTML = `Heute: KW${tw}/${ty}. Die Heute-Linie markiert die aktuelle Woche. Balken klicken zum Bearbeiten.`;
 
   // legend
   $("#tl-legend").innerHTML = `
@@ -1419,7 +1378,7 @@ function newCampaign() {
   const src = cur();
   const clone = JSON.parse(JSON.stringify({ segments: src.segments, domains: src.domains, mechanisms: src.mechanisms, ideas: withIdeas ? src.ideas : [], ui: src.ui }));
   clone.ideas.forEach(i => i.id = uid());
-  const camp = { id: "c_" + uid(), name: name.trim(), subtitle: src.subtitle || "", ...clone };
+  const camp = { id: "c_" + uid(), name: name.trim(), ...clone };
   state.campaigns.push(camp); state.activeCampaignId = camp.id;
   save(); render(); switchView("matrix"); toast("Kampagne angelegt.");
 }

@@ -351,6 +351,26 @@
 
 <script>
 "use strict";
+/*
+ * Touchpoint-Werkstatt — Datenmodell (Schema-Version 3). Details: README.md
+ *
+ * Workspace = { version:3, activeCampaignId, campaigns:[Campaign] }
+ * Campaign  = { id, name, segments[], domains[], ideas[],
+ *               mechaniks[], actions[], articles[], themes[],      // Wert-Registries (Namen)
+ *               mechanikMeta, actionMeta, articleMeta, themeMeta,  // name -> { desc }
+ *               ui }                                               // Ansichtszustand
+ * Segment    = { id, name, color, meta }        // meta = Subtext
+ * Domain     = { id, name, touchpoints:[{ id, name }] }  // Touchpoint gehört genau zu einer Domain
+ * Idea = { id, domainId, tpId, segId, title, desc,
+ *          mech, action, article, theme,        // je 1 optionaler Wert (String)
+ *          prio(0|1|2 -> could/should/must), status(STATUSES),
+ *          timing(null|{fy,fw,ty,tw}), createdAt, updatedAt }
+ *
+ * Vier gleichwertige Wert-Dimensionen mech/action/article/theme: siehe VDIMS.
+ * Anzeigbare Werte = Registry ∪ an Karten vorkommende Werte (allVals).
+ * Persistenz: Storage-Key unten (unveraendert); window.storage oder localStorage.
+ * Migration: migrateWorkspace/migrateCampaign (idempotent).
+ */
 const KEY = "fp_touchpoint_werkstatt_v1";
 const DAY = 86400000;
 const BASE_YEAR = 2026;

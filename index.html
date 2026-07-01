@@ -460,7 +460,9 @@ function migrateCampaign(c) {
     c.ideas.forEach(i => { if (typeof i.mech !== "string") { const arr = Array.isArray(i.mechs) ? i.mechs.map(id => byId[id]).filter(Boolean) : []; i.mech = arr[0] || ""; } });
     delete c.mechanisms;
   }
-  if (!c.ui) c.ui = { domain: c.domains[0]?.id || "shop", filterStatus: "" };
+  if (!c.ui) c.ui = { filterStatus: "" };
+  if (!Array.isArray(c.ui.domains)) c.ui.domains = c.ui.domain ? [c.ui.domain] : [];
+  delete c.ui.domain;
   if (!c.ui.tl) c.ui.tl = { domain: "", tp: "", status: "" };
   if (!c.ui.matrixRow) c.ui.matrixRow = "segment";
   if (!c.ui.matrixCol) c.ui.matrixCol = "touchpoint";
@@ -509,7 +511,10 @@ const esc = s => (s || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;",
 const seg = id => cur().segments.find(s => s.id === id);
 const domain = id => cur().domains.find(d => d.id === id);
 const tp = (dom, id) => domain(dom)?.touchpoints.find(t => t.id === id);
-const cellIdeas = (dom, tpId, segId) => cur().ideas.filter(i => i.domainId === dom && i.tpId === tpId && i.segId === segId);
+// aktive Domänen-Auswahl (Multiselect); leer = alle
+function activeDomains() { const d = cur().ui.domains; const ids = cur().domains.map(x => x.id); return (Array.isArray(d) && d.length ? d.filter(x => ids.includes(x)) : ids); }
+// Domäne, die einen Touchpoint enthält
+function domainOfTp(tpId) { const d = cur().domains.find(dm => dm.touchpoints.some(t => t.id === tpId)); return d ? d.id : null; }
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 1600); }
 
 /* ---------- ISO week helpers ---------- */
@@ -547,7 +552,7 @@ function renderMetrics() {
 /* ---------- matrix rows ---------- */
 function renderDomainRow() {
   $("#domain-row").innerHTML = `<span class="row-label">Domäne</span>` +
-    cur().domains.map(d => `<span class="chip ${d.id === cur().ui.domain ? "active" : ""}" data-dom="${d.id}">${esc(d.name)}</span>`).join("") +
+    cur().domains.map(d => `<span class="chip ${(cur().ui.domains || []).includes(d.id) ? "active" : ""}" data-dom="${d.id}">${esc(d.name)}</span>`).join("") +
     `<span class="chip chip-add" id="add-domain">+ Domäne</span>`;
 }
 function renderFilterRow() {
@@ -576,7 +581,11 @@ function ideaMini(i) {
 const DIMS = { segment: "Segment", touchpoint: "Touchpoint", mech: "Mechanik", action: "Aktion", article: "Angebot", theme: "Thema" };
 function axisValues(dim) {
   if (dim === "segment") return cur().segments.map(s => ({ key: s.id, label: s.name, kind: "segment", color: s.color, meta: s.meta }));
-  if (dim === "touchpoint") return domain(cur().ui.domain).touchpoints.map(t => ({ key: t.id, label: t.name, kind: "touchpoint" }));
+  if (dim === "touchpoint") {
+    const doms = activeDomains(), multi = doms.length > 1, out = [];
+    doms.forEach(did => { const d = domain(did); if (d) d.touchpoints.forEach(t => out.push({ key: t.id, label: multi ? d.name + " · " + t.name : t.name, kind: "touchpoint" })); });
+    return out;
+  }
   // action / article / theme: bekannte Werte + Sammelwert ""
   return [...allVals(dim).map(v => ({ key: v, label: v, kind: dim })),
     { key: "", label: VDIMS[dim].none, kind: dim }];
@@ -594,17 +603,18 @@ function axisHeadCell(v) {
 function renderGrid() {
   const rowDim = cur().ui.matrixRow || "segment", colDim = cur().ui.matrixCol || "touchpoint", grid = $("#grid");
   const rowVals = axisValues(rowDim), colVals = axisValues(colDim);
-  const tpCol = colDim === "touchpoint"; // „+ Touchpoint"-Spalte nur dann
-  grid.style.gridTemplateColumns = `220px repeat(${colVals.length}, minmax(190px, 1fr))${tpCol ? " 132px" : ""}`;
+  const doms = activeDomains();
+  const tpAdd = colDim === "touchpoint" && doms.length === 1; // „+ Touchpoint"-Spalte nur bei genau einer Domäne
+  grid.style.gridTemplateColumns = `220px repeat(${colVals.length}, minmax(190px, 1fr))${tpAdd ? " 132px" : ""}`;
   let html = `<div class="gcorner">${esc(DIMS[rowDim])} ╲ ${esc(DIMS[colDim])}</div>`;
   colVals.forEach(cv => { html += axisHeadCell(cv); });
-  if (tpCol) html += `<div class="gcell ghead" style="background:var(--surface)"><span class="chip chip-add" id="add-tp" style="padding:3px 9px">+ Touchpoint</span></div>`;
+  if (tpAdd) html += `<div class="gcell ghead" style="background:var(--surface)"><span class="chip chip-add" id="add-tp" style="padding:3px 9px">+ Touchpoint</span></div>`;
   rowVals.forEach(rv => {
     // Zeilenkopf: Segment-Kopf wie gehabt, sonst schlichtes Label
     if (rv.kind === "segment") html += axisHeadCell(rv);
     else html += `<div class="gcell gseg"><div class="seg-name">${esc(rv.label)}</div></div>`;
     colVals.forEach(cv => {
-      const base = cur().ideas.filter(i => i.domainId === cur().ui.domain && axisMatch(i, rowDim, rv.key) && axisMatch(i, colDim, cv.key));
+      const base = cur().ideas.filter(i => doms.includes(i.domainId) && axisMatch(i, rowDim, rv.key) && axisMatch(i, colDim, cv.key));
       const shown = base.filter(matchMatrix);
       const dim = cur().ui.filterStatus && shown.length === 0 && base.length > 0;
       html += `<div class="gcell gbody ${dim ? "dim" : ""}" data-cell="${encodeURIComponent(rv.key)}::${encodeURIComponent(cv.key)}">
@@ -612,7 +622,7 @@ function renderGrid() {
         ${shown.map(ideaMini).join("")}
         <span class="cell-add">${base.length ? "+ Idee" : "+ Idee hinzufügen"}</span></div>`;
     });
-    if (tpCol) html += `<div class="gcell"></div>`;
+    if (tpAdd) html += `<div class="gcell"></div>`;
   });
   grid.innerHTML = html;
 }
@@ -753,8 +763,9 @@ let drawerCell = null;
 let drawerEditing = null; // null = Liste | ideaId | "new"
 // Ideen passend zu einem (teilweise gepinnten) Kontext
 function cellIdeasCtx(ctx) {
+  const doms = ctx.dom != null ? [ctx.dom] : activeDomains();
   return cur().ideas.filter(i =>
-    i.domainId === ctx.dom &&
+    doms.includes(i.domainId) &&
     (ctx.segId == null || i.segId === ctx.segId) &&
     (ctx.tpId == null || i.tpId === ctx.tpId) &&
     (ctx.action == null || (i.action || "").trim() === ctx.action) &&
@@ -762,9 +773,10 @@ function cellIdeasCtx(ctx) {
     (ctx.theme == null || (i.theme || "").trim() === ctx.theme));
 }
 function ctxFromAxes(rowKey, colKey) {
-  const ctx = { dom: cur().ui.domain };
+  const ctx = {};
   const set = (dim, key) => { if (dim === "segment") ctx.segId = key; else if (dim === "touchpoint") ctx.tpId = key; else ctx[dim] = key; };
   set(cur().ui.matrixRow || "segment", rowKey); set(cur().ui.matrixCol || "touchpoint", colKey);
+  if (ctx.tpId != null) ctx.dom = domainOfTp(ctx.tpId); // Domäne aus Touchpoint ableiten
   return ctx;
 }
 function openDrawerCtx(ctx) {
@@ -773,7 +785,7 @@ function openDrawerCtx(ctx) {
   renderDrawer();
   $("#scrim").classList.add("open"); $("#drawer").classList.add("open");
 }
-function openCell(tpId, segId, dom) { openDrawerCtx({ dom: dom || cur().ui.domain, tpId, segId }); }
+function openCell(tpId, segId, dom) { openDrawerCtx({ dom: dom || domainOfTp(tpId), tpId, segId }); }
 function closeDrawer() { $("#scrim").classList.remove("open"); $("#drawer").classList.remove("open"); drawerCell = null; drawerEditing = null; }
 function cardSummary(i) {
   const stars = `<span class="priotag prio-${prioLabel(i.prio)}">${prioLabel(i.prio)}</span>`;
@@ -785,18 +797,22 @@ function cardSummary(i) {
     <div class="imeta">${stars}${kw}<span class="stat stat-${i.status}">${i.status}</span><span class="csum-edit">Bearbeiten</span></div></div>`;
 }
 function ctxLabels(ctx) {
-  const parts = [domain(ctx.dom).name];
+  const doms = activeDomains();
+  const domName = ctx.dom != null ? (domain(ctx.dom)?.name || "?") : (doms.length === 1 ? domain(doms[0])?.name : "Mehrere Domänen");
+  const parts = [domName];
   if (ctx.tpId != null) parts.push(tp(ctx.dom, ctx.tpId)?.name || "?");
   if (ctx.action != null) parts.push(ctx.action ? "Aktion: " + ctx.action : "(ohne Aktion)");
-  if (ctx.article != null) parts.push(ctx.article ? "Artikel: " + ctx.article : "(ohne Artikel)");
+  if (ctx.article != null) parts.push(ctx.article ? "Angebot: " + ctx.article : "(ohne Angebot)");
   if (ctx.theme != null) parts.push(ctx.theme ? "Thema: " + ctx.theme : "(ohne Thema)");
+  if (ctx.mech != null) parts.push(ctx.mech ? "Mechanik: " + ctx.mech : "(ohne Mechanik)");
   let title;
   if (ctx.segId != null) { const s = seg(ctx.segId); title = `<span class="seg-dot" style="background:${s?.color || "var(--border)"}"></span>${esc(s?.name || "?")}`; }
   else if (ctx.tpId != null) title = esc(tp(ctx.dom, ctx.tpId)?.name || "?");
+  else if (ctx.mech != null) title = esc(ctx.mech || "(ohne Mechanik)");
   else if (ctx.action != null) title = esc(ctx.action || "(ohne Aktion)");
-  else if (ctx.article != null) title = esc(ctx.article || "(ohne Artikel)");
+  else if (ctx.article != null) title = esc(ctx.article || "(ohne Angebot)");
   else if (ctx.theme != null) title = esc(ctx.theme || "(ohne Thema)");
-  else title = esc(domain(ctx.dom).name);
+  else title = esc(domName || "");
   return { ctxText: parts.join(" · "), titleHtml: title };
 }
 function renderDrawer() {
@@ -837,7 +853,7 @@ function editorFields(i, ctx) {
   const locFields = (needSeg || needTp) ? `
     <div class="aa-row">
       ${needSeg ? `<div class="aa-col"><label class="fl">Segment</label><select class="select f-seg" style="width:100%">${cur().segments.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select></div>` : ""}
-      ${needTp ? `<div class="aa-col"><label class="fl">Touchpoint</label><select class="select f-tp" style="width:100%">${domain(ctx.dom).touchpoints.map(tt => `<option value="${tt.id}">${esc(tt.name)}</option>`).join("")}</select></div>` : ""}
+      ${needTp ? `<div class="aa-col"><label class="fl">Touchpoint</label><select class="select f-tp" style="width:100%">${(ctx.dom != null ? [ctx.dom] : activeDomains()).map(did => { const d = domain(did), multi = (ctx.dom == null && activeDomains().length > 1); return d.touchpoints.map(tt => `<option value="${tt.id}">${esc(multi ? d.name + " · " + tt.name : tt.name)}</option>`).join(""); }).join("")}</select></div>` : ""}
     </div>` : "";
   return `
     ${i ? `<div class="card-id" data-copyid="${i.id}" title="ID kopieren">ID: ${esc(i.id)} <span class="x">⧉</span></div>` : ""}
@@ -1196,13 +1212,13 @@ document.addEventListener("click", e => {
   if (em && !em.hidden && t.id !== "btn-export" && !t.closest(".export-menu")) em.hidden = true;
   const vt = t.closest(".viewtab"); if (vt) { switchView(vt.dataset.view); return; }
 
-  if (t.dataset.dom) { cur().ui.domain = t.dataset.dom; save(); renderDomainRow(); renderGrid(); return; }
+  if (t.dataset.dom) { const arr = cur().ui.domains || (cur().ui.domains = []); const i = arr.indexOf(t.dataset.dom); if (i >= 0) arr.splice(i, 1); else arr.push(t.dataset.dom); save(); renderDomainRow(); renderGrid(); return; }
   if (t.id === "add-domain") { const n = prompt("Name der neuen Domäne?"); if (n) { cur().domains.push({ id: "d_" + uid(), name: n.trim(), touchpoints: [] }); save(); renderDomainRow(); } return; }
-  if (t.id === "add-tp") { const n = prompt("Name des neuen Touchpoints?"); if (n) { domain(cur().ui.domain).touchpoints.push({ id: "t_" + uid(), name: n.trim() }); save(); renderGrid(); } return; }
+  if (t.id === "add-tp") { const did = activeDomains()[0]; const n = prompt("Name des neuen Touchpoints?"); if (n && did) { domain(did).touchpoints.push({ id: "t_" + uid(), name: n.trim() }); save(); renderGrid(); } return; }
   if (t.dataset.tpedit) {
-    e.stopPropagation(); const tpt = tp(cur().ui.domain, t.dataset.tpedit);
+    e.stopPropagation(); const did = domainOfTp(t.dataset.tpedit); const tpt = tp(did, t.dataset.tpedit); if (!tpt) return;
     const n = prompt("Touchpoint umbenennen (leer = löschen):", tpt.name); if (n === null) return;
-    if (n.trim() === "") { if (confirm(`Touchpoint „${tpt.name}\" und zugehörige Ideen löschen?`)) { const d = domain(cur().ui.domain); d.touchpoints = d.touchpoints.filter(x => x.id !== tpt.id); cur().ideas = cur().ideas.filter(i => !(i.domainId === d.id && i.tpId === tpt.id)); save(); render(); } }
+    if (n.trim() === "") { if (confirm(`Touchpoint „${tpt.name}\" und zugehörige Ideen löschen?`)) { const d = domain(did); d.touchpoints = d.touchpoints.filter(x => x.id !== tpt.id); cur().ideas = cur().ideas.filter(i => !(i.domainId === d.id && i.tpId === tpt.id)); save(); render(); } }
     else { tpt.name = n.trim(); save(); renderGrid(); } return;
   }
   if (t.closest("[data-segedit]") && !t.closest(".gbody")) {
@@ -1216,7 +1232,7 @@ document.addEventListener("click", e => {
 
   // timeline bar
   const bar = t.closest(".tl-bar");
-  if (bar) { const c = cur().ideas.find(x => x.id === bar.dataset.bar); if (c) { cur().ui.domain = c.domainId; openCell(c.tpId, c.segId, c.domainId); drawerEditing = c.id; renderDrawer(); } return; }
+  if (bar) { const c = cur().ideas.find(x => x.id === bar.dataset.bar); if (c) { openCell(c.tpId, c.segId, c.domainId); drawerEditing = c.id; renderDrawer(); } return; }
 
   if (t.closest("#f-clear")) { cur().ui.filterStatus = ""; save(); renderFilterRow(); renderGrid(); return; }
   if (t.closest("#tlf-clear")) { cur().ui.tl = { domain: "", tp: "", status: "" }; save(); renderTlFilters(); renderTimeline(); return; }
@@ -1241,8 +1257,10 @@ document.addEventListener("click", e => {
         const segId = drawerCell.segId != null ? drawerCell.segId : data.segId;
         const tpId = drawerCell.tpId != null ? drawerCell.tpId : data.tpId;
         if (!segId || !tpId) { toast("Bitte Segment und Touchpoint wählen."); return; }
+        const domId = domainOfTp(tpId);
+        if (!domId) { toast("Touchpoint keiner Domäne zugeordnet."); return; }
         const { segId: _s, tpId: _t, ...rest } = data;
-        cur().ideas.push({ id: uid(), domainId: drawerCell.dom, segId, tpId, ...rest, createdAt: ts, updatedAt: ts }); toast("Karte hinzugefügt.");
+        cur().ideas.push({ id: uid(), domainId: domId, segId, tpId, ...rest, createdAt: ts, updatedAt: ts }); toast("Karte hinzugefügt.");
       }
       else { const idea = cur().ideas.find(x => x.id === t.dataset.save); const { segId: _s, tpId: _t, ...rest } = data; Object.assign(idea, rest, { updatedAt: ts }); if (!idea.createdAt) idea.createdAt = ts; toast("Gespeichert."); }
       drawerEditing = null; save(); renderDrawer(); render(); return;
@@ -1250,7 +1268,7 @@ document.addEventListener("click", e => {
   }
 
   const jump = t.closest("[data-jump]");
-  if (jump) { const [dom, tpId, segId] = jump.dataset.jump.split("::"); switchView("matrix"); cur().ui.domain = dom; renderDomainRow(); renderGrid(); openCell(tpId, segId, dom); return; }
+  if (jump) { const [dom, tpId, segId] = jump.dataset.jump.split("::"); switchView("matrix"); const ds = cur().ui.domains || (cur().ui.domains = []); if (ds.length && !ds.includes(dom)) ds.push(dom); renderDomainRow(); renderGrid(); openCell(tpId, segId, dom); return; }
   if (t.dataset.vedit) { openValDrawer(t.dataset.vedit, t.dataset.vval); return; }
   if (t.dataset.vcancel) { drawerVal = null; closeDrawer(); return; }
   if (t.dataset.vdel) { const { key, value } = drawerVal; drawerVal = null; closeDrawer(); removeValue(key, value); return; }

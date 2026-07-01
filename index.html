@@ -466,6 +466,7 @@ function migrateCampaign(c) {
   if (!c.ui.tl) c.ui.tl = { domain: "", tp: "", status: "" };
   if (!c.ui.matrixRow) c.ui.matrixRow = "segment";
   if (!c.ui.matrixCol) c.ui.matrixCol = "touchpoint";
+  if (!c.ui.tlRow) c.ui.tlRow = "segment";
   c.ideas.forEach(i => { if (typeof i.mech !== "string") i.mech = ""; delete i.mechs; if (i.timing === undefined) i.timing = null; });
   return c;
 }
@@ -643,7 +644,11 @@ function renderTlFilters() {
   if (tl.domain) tpOpts += domain(tl.domain).touchpoints.map(t => `<option value="${t.id}" ${tl.tp === t.id ? "selected" : ""}>${esc(t.name)}</option>`).join("");
   const statOpts = `<option value="">Status: alle</option>` +
     STATUSES.map(s => `<option value="${s}" ${tl.status === s ? "selected" : ""}>${s}</option>`).join("");
-  $("#tl-filter-row").innerHTML = `<span class="row-label">Filter</span>
+  const rowD = cur().ui.tlRow || "segment";
+  const rowOpts = Object.keys(TLROWS).map(k => `<option value="${k}" ${rowD === k ? "selected" : ""}>${TLROWS[k]}</option>`).join("");
+  $("#tl-filter-row").innerHTML = `<span class="row-label">Zeilen</span>
+    <select class="select" id="tlf-row">${rowOpts}</select>
+    <span class="row-label" style="margin-left:8px">Filter</span>
     <select class="select" id="tlf-dom">${domOpts}</select>
     <select class="select" id="tlf-tp" ${tl.domain ? "" : "disabled"}>${tpOpts}</select>
     <select class="select" id="tlf-stat">${statOpts}</select>
@@ -665,6 +670,25 @@ function packTracks(cards) {
     if (!placed) { c._track = tracks.length; tracks.push([c]); }
   });
   return Math.max(tracks.length, 1);
+}
+const TLROWS = { segment: "Segment", domain: "Domäne", touchpoint: "Touchpoint", mech: "Mechanik", action: "Aktion", article: "Angebot", theme: "Thema" };
+function tlRowValues() {
+  const dim = cur().ui.tlRow || "segment";
+  if (dim === "segment") return cur().segments.map(s => ({ key: s.id, label: s.name, kind: "segment", color: s.color }));
+  if (dim === "domain") return cur().domains.map(d => ({ key: d.id, label: d.name, kind: "domain" }));
+  if (dim === "touchpoint") {
+    const tld = cur().ui.tl.domain, doms = tld ? [tld] : cur().domains.map(d => d.id), multi = doms.length > 1, out = [];
+    doms.forEach(did => { const d = domain(did); if (d) d.touchpoints.forEach(t => out.push({ key: t.id, label: multi ? d.name + " · " + t.name : t.name, kind: "touchpoint" })); });
+    return out;
+  }
+  return [...allVals(dim).map(v => ({ key: v, label: v, kind: dim })), { key: "", label: VDIMS[dim].none, kind: dim }];
+}
+function tlRowMatch(i, key) {
+  const dim = cur().ui.tlRow || "segment";
+  if (dim === "segment") return i.segId === key;
+  if (dim === "domain") return i.domainId === key;
+  if (dim === "touchpoint") return i.tpId === key;
+  return (i[dim] || "").trim() === key;
 }
 function renderTimeline() {
   const COLW = 26, TRACKH = 28, LANEPAD = 8;
@@ -708,27 +732,30 @@ function renderTimeline() {
   });
   function var_left(idx) { return /* lane label width */ 168 + (idx - minIdx) * COLW; }
 
-  cur().segments.forEach(s => {
-    const cards = cur().ideas.filter(i => i.segId === s.id && i.timing && matchTl(i)).map(i => {
+  tlRowValues().forEach(rv => {
+    const cards = cur().ideas.filter(i => tlRowMatch(i, rv.key) && i.timing && matchTl(i)).map(i => {
       const a = weekToIdx(i.timing.fy, i.timing.fw), b = weekToIdx(i.timing.ty, i.timing.tw);
       return Object.assign({}, i, { _s: Math.min(a, b), _e: Math.max(a, b) });
     });
     const trackCount = packTracks(cards);
     const laneH = trackCount * TRACKH + LANEPAD;
-    const untimed = cur().ideas.filter(i => i.segId === s.id && !i.timing && matchTl(i));
+    const untimed = cur().ideas.filter(i => tlRowMatch(i, rv.key) && !i.timing && matchTl(i));
     let bars = "";
     cards.forEach(c => {
       const left = (c._s - minIdx) * COLW + 1, width = (c._e - c._s + 1) * COLW - 2, top = c._track * TRACKH + 4;
-      const segColor = s.color;
+      const segColor = seg(c.segId)?.color || "var(--border)";
       const st = c.status;
       const styleBg = st === "idee" ? `border-color:${segColor};` : `background-color:${segColor};`;
-      const tip = `${s.name} · ${tp(c.domainId, c.tpId)?.name || "?"} (${domain(c.domainId).name}) · ${kwLabel(c.timing)} · ${st}`;
+      const tip = `${seg(c.segId)?.name || "?"} · ${tp(c.domainId, c.tpId)?.name || "?"} (${domain(c.domainId)?.name || "?"}) · ${kwLabel(c.timing)} · ${st}`;
       bars += `<div class="tl-bar st-${st}" data-bar="${c.id}" title="${esc(tip)}" style="left:${left}px;width:${Math.max(width, 14)}px;top:${top}px;${styleBg}">
-        <span class="t">${c.prio ? "★ " : ""}${esc(c.title)}</span></div>`;
+        <span class="t">${esc(c.title)}</span></div>`;
     });
+    const labelHtml = rv.kind === "segment"
+      ? `<div class="seg-name"><span class="seg-dot" style="background:${rv.color}"></span>${esc(rv.label)}</div>`
+      : `<div class="seg-name">${esc(rv.label)}</div>`;
     lanes += `<div class="tl-lane" style="height:${laneH}px">
       <div class="tl-lane-label">
-        <div class="seg-name"><span class="seg-dot" style="background:${s.color}"></span>${esc(s.name)}</div>
+        ${labelHtml}
         ${untimed.length ? `<div class="tl-unplanned" title="${esc(untimed.map(u => u.title).join("\n"))}">${untimed.length} ungeplant</div>` : ""}
       </div>
       <div class="tl-track" style="width:${fullW}px; background:repeating-linear-gradient(to right, transparent 0 ${COLW - 1}px, var(--border-soft) ${COLW - 1}px ${COLW}px)">${bars}</div>
@@ -741,7 +768,7 @@ function renderTimeline() {
   if (tIdx >= minIdx && tIdx <= maxIdx) today = `<div class="tl-today" style="left:${var_left(tIdx)}px"></div>`;
 
   $("#tl-inner").innerHTML =
-    `<div class="tl-head"><div class="tl-corner">Segment / KW</div>
+    `<div class="tl-head"><div class="tl-corner">${esc(TLROWS[cur().ui.tlRow] || "Segment")} / KW</div>
        <div class="tl-headcols" style="width:${fullW}px"><div class="tl-bands">${bands}</div><div class="tl-weeks">${weeks}</div></div></div>
      <div class="tl-lanes">${laneBands}${today}${lanes}</div>`;
 
@@ -1360,6 +1387,7 @@ document.addEventListener("change", e => {
   if (e.target.dataset.aamerge) { mergeValue(e.target.dataset.aamerge, e.target.dataset.aafrom, e.target.value); return; }
   if (id === "f-stat") { cur().ui.filterStatus = e.target.value; save(); renderFilterRow(); renderGrid(); }
   if (id === "tlf-dom") { cur().ui.tl.domain = e.target.value; cur().ui.tl.tp = ""; save(); renderTlFilters(); renderTimeline(); }
+  if (id === "tlf-row") { cur().ui.tlRow = e.target.value || "segment"; save(); renderTlFilters(); renderTimeline(); }
   if (id === "tlf-tp") { cur().ui.tl.tp = e.target.value; save(); renderTimeline(); }
   if (id === "tlf-stat") { cur().ui.tl.status = e.target.value; save(); renderTlFilters(); renderTimeline(); }
   if (id === "file-input") {

@@ -299,6 +299,7 @@
           <option value="mech">Mechanik</option>
           <option value="action">Aktionen</option>
           <option value="article">Artikel</option>
+          <option value="theme">Themen</option>
         </select>
         <span class="row-label" id="gloss-hint" style="margin-right:0; text-transform:none; letter-spacing:0"></span>
       </span>
@@ -318,6 +319,7 @@
         <select class="select" id="sum-seg" style="font-size:12px"></select>
         <select class="select" id="sum-action" style="font-size:12px"></select>
         <select class="select" id="sum-article" style="font-size:12px"></select>
+        <select class="select" id="sum-theme" style="font-size:12px"></select>
         <span class="row-label" style="margin-right:0">Änderungen ab</span>
         <input type="date" class="select" id="sum-since" style="font-size:12px">
         <span class="chip" id="sum-since-clear" hidden>Zurücksetzen <span class="x">✕</span></span>
@@ -441,9 +443,10 @@ function migrateCampaign(c) {
   if (typeof c.subtitle !== "string") c.subtitle = "";
   c.segments = c.segments || []; c.domains = c.domains || [];
   c.mechanisms = c.mechanisms || []; c.ideas = c.ideas || [];
-  c.actions = Array.isArray(c.actions) ? c.actions : []; c.articles = Array.isArray(c.articles) ? c.articles : [];
+  c.actions = Array.isArray(c.actions) ? c.actions : []; c.articles = Array.isArray(c.articles) ? c.articles : []; c.themes = Array.isArray(c.themes) ? c.themes : [];
   if (!c.actionMeta || typeof c.actionMeta !== "object") c.actionMeta = {};
   if (!c.articleMeta || typeof c.articleMeta !== "object") c.articleMeta = {};
+  if (!c.themeMeta || typeof c.themeMeta !== "object") c.themeMeta = {};
   if (!c.ui) c.ui = { domain: c.domains[0]?.id || "shop", filterMech: "", filterStatus: "" };
   if (!c.ui.tl) c.ui.tl = { domain: "", tp: "", mech: "", status: "" };
   if (!c.ui.matrixRow) c.ui.matrixRow = "segment";
@@ -563,13 +566,13 @@ function ideaMini(i) {
     <div class="imeta">${dots}${stars}${kw}<span class="stat stat-${i.status}">${i.status}</span></div></div>`;
 }
 // ---- variable Achsen ----
-const DIMS = { segment: "Segment", touchpoint: "Touchpoint", action: "Aktion", article: "Artikel" };
+const DIMS = { segment: "Segment", touchpoint: "Touchpoint", action: "Aktion", article: "Artikel", theme: "Thema" };
 function axisValues(dim) {
   if (dim === "segment") return cur().segments.map(s => ({ key: s.id, label: s.name, kind: "segment", color: s.color, meta: s.meta }));
   if (dim === "touchpoint") return domain(cur().ui.domain).touchpoints.map(t => ({ key: t.id, label: t.name, kind: "touchpoint" }));
-  // action / article: bekannte Werte + Sammelwert ""
+  // action / article / theme: bekannte Werte + Sammelwert ""
   return [...allVals(dim).map(v => ({ key: v, label: v, kind: dim })),
-    { key: "", label: dim === "action" ? "(ohne Aktion)" : "(ohne Artikel)", kind: dim }];
+    { key: "", label: VDIMS[dim].none, kind: dim }];
 }
 function axisMatch(i, dim, key) {
   if (dim === "segment") return i.segId === key;
@@ -752,7 +755,8 @@ function cellIdeasCtx(ctx) {
     (ctx.segId == null || i.segId === ctx.segId) &&
     (ctx.tpId == null || i.tpId === ctx.tpId) &&
     (ctx.action == null || (i.action || "").trim() === ctx.action) &&
-    (ctx.article == null || (i.article || "").trim() === ctx.article));
+    (ctx.article == null || (i.article || "").trim() === ctx.article) &&
+    (ctx.theme == null || (i.theme || "").trim() === ctx.theme));
 }
 function ctxFromAxes(rowKey, colKey) {
   const ctx = { dom: cur().ui.domain };
@@ -783,11 +787,13 @@ function ctxLabels(ctx) {
   if (ctx.tpId != null) parts.push(tp(ctx.dom, ctx.tpId)?.name || "?");
   if (ctx.action != null) parts.push(ctx.action ? "Aktion: " + ctx.action : "(ohne Aktion)");
   if (ctx.article != null) parts.push(ctx.article ? "Artikel: " + ctx.article : "(ohne Artikel)");
+  if (ctx.theme != null) parts.push(ctx.theme ? "Thema: " + ctx.theme : "(ohne Thema)");
   let title;
   if (ctx.segId != null) { const s = seg(ctx.segId); title = `<span class="seg-dot" style="background:${s?.color || "var(--border)"}"></span>${esc(s?.name || "?")}`; }
   else if (ctx.tpId != null) title = esc(tp(ctx.dom, ctx.tpId)?.name || "?");
   else if (ctx.action != null) title = esc(ctx.action || "(ohne Aktion)");
   else if (ctx.article != null) title = esc(ctx.article || "(ohne Artikel)");
+  else if (ctx.theme != null) title = esc(ctx.theme || "(ohne Thema)");
   else title = esc(domain(ctx.dom).name);
   return { ctxText: parts.join(" · "), titleHtml: title };
 }
@@ -821,6 +827,7 @@ function editorFields(i, ctx) {
   const yOpts = sel => [2026, 2027].map(y => `<option value="${y}" ${sel === y ? "selected" : ""}>${y}</option>`).join("");
   const actVal = i ? (i.action || "") : (ctx.action != null ? ctx.action : "");
   const artVal = i ? (i.article || "") : (ctx.article != null ? ctx.article : "");
+  const themeVal = i ? (i.theme || "") : (ctx.theme != null ? ctx.theme : "");
   // Pflichtfelder, die nicht über eine Achse gepinnt sind, beim Neuanlegen abfragen
   const needSeg = !i && ctx.segId == null;
   const needTp = !i && ctx.tpId == null;
@@ -847,8 +854,11 @@ function editorFields(i, ctx) {
         <input class="tf f-article" list="dl-articles" placeholder="z. B. konkreter Artikel / SKU" value="${esc(artVal)}">
       </div>
     </div>
+    <label class="fl">Thema (optional)</label>
+    <input class="tf f-theme" list="dl-themes" placeholder="z. B. inhaltlicher Aufhänger / Anlass" value="${esc(themeVal)}">
     <datalist id="dl-actions">${allVals("action").map(v => `<option value="${esc(v)}"></option>`).join("")}</datalist>
     <datalist id="dl-articles">${allVals("article").map(v => `<option value="${esc(v)}"></option>`).join("")}</datalist>
+    <datalist id="dl-themes">${allVals("theme").map(v => `<option value="${esc(v)}"></option>`).join("")}</datalist>
     <label class="fl">Timing · Kalenderwoche (optional)</label>
     <div class="kw-row">
       <span class="kw-lbl">von</span><select class="tf-mini f-fy">${yOpts(t ? t.fy : 2026)}</select>
@@ -878,6 +888,7 @@ function readEditor(el) {
     mechs: $$(".mech-chip.on", el).map(c => c.dataset.mech),
     action: $(".f-action", el).value.trim(),
     article: $(".f-article", el).value.trim(),
+    theme: $(".f-theme", el).value.trim(),
     ...(segSel ? { segId: segSel.value } : {}),
     ...(tpSel ? { tpId: tpSel.value } : {}),
     prio: +($(".opt.on[data-prio]", el)?.dataset.prio || 0),
@@ -903,10 +914,10 @@ function openValDrawer(key, value) {
 }
 function renderValDrawer() {
   if (!drawerVal) return;
-  const { key, value } = drawerVal, label = key === "action" ? "Aktion" : "Artikel";
+  const { key, value } = drawerVal, label = VDIMS[key].label;
   const others = allVals(key).filter(o => o !== value);
   const uses = cur().ideas.filter(i => (i[key] || "").trim() === value);
-  $("#drawer-ctx").textContent = key === "action" ? "Aktionen" : "Artikel";
+  $("#drawer-ctx").textContent = label;
   $("#drawer-title").textContent = value;
   $("#drawer-body").innerHTML = `<div class="editor">
     <div class="ed-head">${label} bearbeiten</div>
@@ -994,9 +1005,9 @@ function renderGlossary() {
   const dimSel = $("#gloss-dim"); if (dimSel && dimSel.value !== dim) dimSel.value = dim;
   const addMech = $("#btn-add-mech"); if (addMech) addMech.style.display = dim === "mech" ? "" : "none";
   const addVal = $("#btn-add-val");
-  if (addVal) { addVal.style.display = dim === "mech" ? "none" : ""; addVal.textContent = dim === "action" ? "+ Aktion" : "+ Artikel"; }
+  if (addVal) { addVal.style.display = dim === "mech" ? "none" : ""; addVal.textContent = "+ " + (VDIMS[dim]?.label || ""); }
   const newInp = $("#gloss-new-name");
-  if (newInp) { newInp.style.display = dim === "mech" ? "none" : ""; newInp.placeholder = (dim === "action" ? "Aktion" : "Artikel") + " hinzufügen…"; }
+  if (newInp) { newInp.style.display = dim === "mech" ? "none" : ""; newInp.placeholder = (VDIMS[dim]?.label || "Wert") + " hinzufügen…"; }
   const hint = $("#gloss-hint");
   if (hint) hint.textContent = dim === "mech"
     ? "Einsatzorte aus der Matrix automatisch verknüpft"
@@ -1006,7 +1017,7 @@ function renderGlossary() {
   const key = dim, vals = allVals(key);
   grid.innerHTML = vals.length
     ? vals.map(v => valueCard(key, v)).join("")
-    : `<div class="empty" style="text-align:left">Noch keine ${dim === "action" ? "Aktionen" : "Artikel"} — lege eine an oder ordne sie an einer Karte zu.</div>`;
+    : `<div class="empty" style="text-align:left">Noch keine ${esc(VDIMS[dim]?.label || "Werte")} — lege eine an oder ordne sie an einer Karte zu.</div>`;
 }
 
 /* ---------- summary (Matrix in Textform) ---------- */
@@ -1016,14 +1027,20 @@ const nowTs = () => Date.now();
 function distinctVals(key) {
   return [...new Set(cur().ideas.map(i => (i[key] || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "de"));
 }
+// Wert-Dimensionen (optionale Freitext-Attribute an Ideen)
+const VDIMS = {
+  action:  { reg: "actions",  meta: "actionMeta",  label: "Aktion",  none: "(ohne Aktion)" },
+  article: { reg: "articles", meta: "articleMeta", label: "Artikel", none: "(ohne Artikel)" },
+  theme:   { reg: "themes",   meta: "themeMeta",   label: "Thema",   none: "(ohne Thema)" }
+};
 // Namens-Registry pro Kampagne (auch Werte ohne zugeordnete Karten)
-function regFor(key) { const c = cur(), f = key === "action" ? "actions" : "articles"; if (!Array.isArray(c[f])) c[f] = []; return c[f]; }
+function regFor(key) { const c = cur(), f = VDIMS[key].reg; if (!Array.isArray(c[f])) c[f] = []; return c[f]; }
 // alle bekannten Werte: Registry ∪ aus Karten abgeleitet
 function allVals(key) {
   return [...new Set([...regFor(key), ...cur().ideas.map(i => i[key] || "")].map(s => (s || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "de"));
 }
 // Metadaten (Beschreibung) pro Wert
-function metaFor(key) { const c = cur(), f = key === "action" ? "actionMeta" : "articleMeta"; if (!c[f] || typeof c[f] !== "object") c[f] = {}; return c[f]; }
+function metaFor(key) { const c = cur(), f = VDIMS[key].meta; if (!c[f] || typeof c[f] !== "object") c[f] = {}; return c[f]; }
 function valDesc(key, v) { return (metaFor(key)[v] || {}).desc || ""; }
 function setValDesc(key, v, desc) { const m = metaFor(key); if (desc) m[v] = { desc }; else delete m[v]; }
 function fmtTs(ts) { if (!ts) return ""; const d = new Date(ts), p = x => String(x).padStart(2, "0");
@@ -1044,10 +1061,11 @@ function renderSummary() {
   const c = cur(), all = c.ideas, cut = cutoffMs(), since = c.ui.sumSince || "";
   let segF = c.ui.sumSeg || "";
   if (segF && !c.segments.find(s => s.id === segF)) { segF = ""; c.ui.sumSeg = ""; }
-  const actVals = allVals("action"), artVals = allVals("article");
-  let actF = c.ui.sumAction || "", artF = c.ui.sumArticle || "";
+  const actVals = allVals("action"), artVals = allVals("article"), thmVals = allVals("theme");
+  let actF = c.ui.sumAction || "", artF = c.ui.sumArticle || "", thmF = c.ui.sumTheme || "";
   if (actF && !actVals.includes(actF)) { actF = ""; c.ui.sumAction = ""; }
   if (artF && !artVals.includes(artF)) { artF = ""; c.ui.sumArticle = ""; }
+  if (thmF && !thmVals.includes(thmF)) { thmF = ""; c.ui.sumTheme = ""; }
   const segSel = $("#sum-seg");
   if (segSel) segSel.innerHTML = `<option value="">Kundengruppe: alle</option>` +
     c.segments.map(s => `<option value="${s.id}" ${segF === s.id ? "selected" : ""}>${esc(s.name)}</option>`).join("");
@@ -1057,6 +1075,9 @@ function renderSummary() {
   const artSel = $("#sum-article");
   if (artSel) artSel.innerHTML = `<option value="">Artikel: alle</option>` +
     artVals.map(v => `<option value="${esc(v)}" ${artF === v ? "selected" : ""}>${esc(v)}</option>`).join("");
+  const thmSel = $("#sum-theme");
+  if (thmSel) thmSel.innerHTML = `<option value="">Thema: alle</option>` +
+    thmVals.map(v => `<option value="${esc(v)}" ${thmF === v ? "selected" : ""}>${esc(v)}</option>`).join("");
   const sinceEl = $("#sum-since"); if (sinceEl && sinceEl.value !== since) sinceEl.value = since;
   const clearEl = $("#sum-since-clear"); if (clearEl) clearEl.hidden = !since;
 
@@ -1064,12 +1085,13 @@ function renderSummary() {
   if (segF) visible = visible.filter(i => i.segId === segF);
   if (actF) visible = visible.filter(i => (i.action || "") === actF);
   if (artF) visible = visible.filter(i => (i.article || "") === artF);
-  const anyFilter = cut != null || !!segF || !!actF || !!artF;
+  if (thmF) visible = visible.filter(i => (i.theme || "") === thmF);
+  const anyFilter = cut != null || !!segF || !!actF || !!artF || !!thmF;
   const segList = segF ? c.segments.filter(s => s.id === segF) : c.segments;
 
   $("#sum-totals").textContent =
     `${all.length} Idee${all.length === 1 ? "" : "n"} · ${all.filter(i => i.status === "geplant").length} geplant · ${all.filter(i => i.status === "live").length} live · ${all.filter(i => i.timing).length} mit Timing` +
-    (cut != null || segF || actF || artF ? ` · ${visible.length} gefiltert` : "");
+    (anyFilter ? ` · ${visible.length} gefiltert` : "");
   if (!all.length) { $("#summary-body").innerHTML = `<div class="empty">Noch keine Ideen in dieser Kampagne.</div>`; return; }
   if (!visible.length) { $("#summary-body").innerHTML = `<div class="empty">Keine Einträge für die aktuelle Filterauswahl.</div>`; return; }
   let html = "";
@@ -1087,7 +1109,7 @@ function renderSummary() {
         const mechs = i.mechs.map(mid => mech(mid)?.name).filter(Boolean);
         const stars = i.prio ? `<span class="stars">${"★".repeat(i.prio)}</span>` : "";
         const kw = i.timing ? `<span class="kwtag">${kwLabel(i.timing)}</span>` : "";
-        const aa = [(i.action || "").trim() ? "Aktion: " + esc(i.action.trim()) : "", (i.article || "").trim() ? "Artikel: " + esc(i.article.trim()) : ""].filter(Boolean).join(" · ");
+        const aa = [(i.action || "").trim() ? "Aktion: " + esc(i.action.trim()) : "", (i.article || "").trim() ? "Artikel: " + esc(i.article.trim()) : "", (i.theme || "").trim() ? "Thema: " + esc(i.theme.trim()) : ""].filter(Boolean).join(" · ");
         html += `<div class="sum-idea"><span class="t">${esc(i.title)}</span>` +
           `<span class="imeta"><span class="stat stat-${i.status}">${i.status}</span>${stars}${kw}${changeBadge(i)}</span>` +
           `${aa ? `<div class="sum-sub">${aa}</div>` : ""}` +
@@ -1103,19 +1125,22 @@ function renderSummary() {
 function summaryText() {
   const c = cur(), all = c.ideas, cut = cutoffMs(), since = c.ui.sumSince || "";
   const segF = c.ui.sumSeg && c.segments.find(s => s.id === c.ui.sumSeg) ? c.ui.sumSeg : "";
-  const actVals = allVals("action"), artVals = allVals("article");
+  const actVals = allVals("action"), artVals = allVals("article"), thmVals = allVals("theme");
   const actF = c.ui.sumAction && actVals.includes(c.ui.sumAction) ? c.ui.sumAction : "";
   const artF = c.ui.sumArticle && artVals.includes(c.ui.sumArticle) ? c.ui.sumArticle : "";
+  const thmF = c.ui.sumTheme && thmVals.includes(c.ui.sumTheme) ? c.ui.sumTheme : "";
   let visible = cut != null ? all.filter(i => (i.updatedAt || i.createdAt || 0) >= cut) : all;
   if (segF) visible = visible.filter(i => i.segId === segF);
   if (actF) visible = visible.filter(i => (i.action || "") === actF);
   if (artF) visible = visible.filter(i => (i.article || "") === artF);
-  const anyFilter = cut != null || !!segF || !!actF || !!artF;
+  if (thmF) visible = visible.filter(i => (i.theme || "") === thmF);
+  const anyFilter = cut != null || !!segF || !!actF || !!artF || !!thmF;
   const segList = segF ? c.segments.filter(s => s.id === segF) : c.segments;
   let out = `${c.name}\n${all.length} Ideen · ${all.filter(i => i.status === "geplant").length} geplant · ${all.filter(i => i.status === "live").length} live · ${all.filter(i => i.timing).length} mit Timing` +
     (segF ? ` · Kundengruppe: ${seg(segF)?.name || ""}` : "") +
     (actF ? ` · Aktion: ${actF}` : "") +
     (artF ? ` · Artikel: ${artF}` : "") +
+    (thmF ? ` · Thema: ${thmF}` : "") +
     (cut != null ? ` · Änderungen ab ${fmtDate(since)} (${visible.length})` : "") + `\n`;
   segList.forEach(s => {
     const segIdeas = visible.filter(i => i.segId === s.id);
@@ -1130,7 +1155,7 @@ function summaryText() {
         const mechs = i.mechs.map(mid => mech(mid)?.name).filter(Boolean);
         const k = changeKind(i);
         out += `    • ${i.title} [${i.status}${i.prio ? ", Prio " + i.prio : ""}${i.timing ? ", " + kwLabel(i.timing) : ""}${k ? ", " + k : ""}]\n`;
-        const aa = [(i.action || "").trim() ? "Aktion: " + i.action.trim() : "", (i.article || "").trim() ? "Artikel: " + i.article.trim() : ""].filter(Boolean).join(" · ");
+        const aa = [(i.action || "").trim() ? "Aktion: " + i.action.trim() : "", (i.article || "").trim() ? "Artikel: " + i.article.trim() : "", (i.theme || "").trim() ? "Thema: " + i.theme.trim() : ""].filter(Boolean).join(" · ");
         if (aa) out += `      ${aa}\n`;
         if (mechs.length) out += `      Mechanismen: ${mechs.join(", ")}\n`;
         if (i.desc) out += `      ${i.desc}\n`;
@@ -1152,7 +1177,7 @@ function copyText(txt) {
 
 /* ---------- Aktionen & Artikel: Werte über alle Karten pflegen ---------- */
 function addValue(key) {
-  const label = key === "action" ? "Aktion" : "Artikel";
+  const label = VDIMS[key].label;
   const inp = $("#gloss-new-name");
   const v = (inp ? inp.value : "").trim();
   if (!v) { toast(`Bitte einen Namen für die ${label} eingeben.`); inp?.focus(); return; }
@@ -1385,6 +1410,7 @@ document.addEventListener("change", e => {
   if (id === "ax-col") { const v = e.target.value; if (v === cur().ui.matrixRow) cur().ui.matrixRow = cur().ui.matrixCol; cur().ui.matrixCol = v; save(); renderAxisRow(); renderGrid(); return; }
   if (id === "gloss-dim") { cur().ui.glossDim = e.target.value || "mech"; save(); renderGlossary(); return; }
   if (id === "sum-action") { cur().ui.sumAction = e.target.value || ""; save(); renderSummary(); return; }
+  if (id === "sum-theme") { cur().ui.sumTheme = e.target.value || ""; save(); renderSummary(); return; }
   if (id === "sum-article") { cur().ui.sumArticle = e.target.value || ""; save(); renderSummary(); return; }
   if (id === "sum-since") { cur().ui.sumSince = e.target.value || ""; save(); renderSummary(); return; }
   if (e.target.dataset.aaedit) { renameValue(e.target.dataset.aaedit, e.target.dataset.aaold, e.target.value); return; }
